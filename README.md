@@ -68,8 +68,41 @@ coordinates are Mb to 3 decimals (`6.981`), read coordinates kb to 1 (`21.5`). T
 axis starts at 0 unless the primary alignment carries a **leading hard clip**, in which
 case it starts at that offset (soft-clipped bases are present in SEQ and shift nothing).
 
-The plot box is 45 mm square, excluding title and labels; the reference window is the
-read's aligned span padded by 1 kb either side. Both are constants, not options.
+The plot box is `--panel-mm` square (45 mm by default), excluding title and labels. The
+reference window is exactly the read's aligned span, with no padding.
+
+## How the main diagonal is determined
+
+Black is not "the longest line" — it is derived from the alignment, in three steps.
+
+**1. Seed a band per aligned block.** Each alignment on the chosen chromosome (primary
+plus any supplementary in the same orientation) is walked through its CIGAR. Every
+aligned block of at least `MIN_BLOCK` (20 bp) yields a *band*: the diagonal it sits on
+plus the x-range it covers. Each block contributes two bands, one on the reference side
+of the plot and its mirror on the read side. The self-identity diagonal is added as a
+band spanning the whole plot.
+
+**2. Grow each band along its own diagonal.** A band is extended through k-mer runs that
+lie on the same diagonal (within `DIAG_TOL`, 3 bp) and are separated from it by at most
+`EXTEND_GAP` (200 bp), repeating until it stops growing. This is what makes a black line
+a continuous diagonal instead of only the aligned part of one, and it is what puts a
+tandem duplication in black: the duplicated copy sits on the alignment's own diagonal,
+just displaced.
+
+**3. Colour each run.** A drawn run is black when its diagonal is within `DIAG_TOL` of a
+band's and it overlaps that band's x-range by at least `MIN_OVERLAP` (half the run's own
+length). Requiring real overlap rather than any overlap keeps a run that merely clips a
+band's edge, or sits at the same offset kilobases away, in the ladder colour.
+
+`MIN_BLOCK`, `DIAG_TOL`, `EXTEND_GAP` and `MIN_OVERLAP` are constants at the top of
+`plot.py`, not options. `EXTEND_GAP` is the one worth knowing about: it sets how far a
+black line may jump to keep following its diagonal. Raise it and black follows through
+longer interruptions; in a very dense repeat array a large value could chain further
+than you intend.
+
+How far the black path reaches is otherwise governed by `--min-seg`: if an alignment
+ends in a block shorter than `--min-seg`, no run there survives the length filter and
+the line stops that far short of the panel edge.
 
 ## Options
 
@@ -78,7 +111,9 @@ read's aligned span padded by 1 kb either side. Both are constants, not options.
 | `-k, --kmer` | 20 | seed size (5–31). A random 20-mer match has probability ~4⁻²⁰ |
 | `--min-seg` | 170 | drop diagonal runs shorter than this (bp). **The main de-cluttering control** — 170 is just under one CEN178 satellite unit (units vary 177–179 bp), so each surviving run is at least one monomer and the ladder spacing reads as the repeat period |
 | `--merge-gap` | k+1 | largest gap chained into one run. k+1 is exactly the step across a single substitution, so runs bridge isolated SNPs and nothing more; `1` gives strictly exact runs |
+| `--panel-mm` | 45 | size of the square plot box in mm, excluding title and labels |
 | `--outdir` | `.` | output directory |
+| `--name` | read id | output file stem, giving `<name>.quad.png` / `.pdf`. One read only |
 | `--colour_main` | black | colour of the main diagonals (alignment diagonals, followed to their full extent) |
 | `--colour_ext` | grey70 | colour of every other diagonal |
 
