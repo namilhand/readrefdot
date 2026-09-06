@@ -34,6 +34,9 @@ COL_REV = "#D55E00"             # vermillion - reverse-complement matches
 COL_LINE = "#0072B2"            # blue - annotation guide lines
 COL_LAB = "#444444"
 DIAG_TOL = 3                    # bp slack when matching a run to an alignment diagonal
+MIN_BLOCK = 20                  # smallest aligned block that contributes an identity band
+MIN_OVERLAP = 0.5               # a run must lie this far inside a band to count as main
+EXTEND_GAP = 200                # bp: bands grow along their diagonal through runs this close
 
 STYLE = {
     "font.family": "sans-serif",
@@ -72,13 +75,19 @@ def _seq_x(q, aln, ctx):
     return q - ctx.read_offset
 
 
-def identity_bands(ctx, R, min_block=200):
+def identity_bands(ctx, R, min_block=MIN_BLOCK):
     """Where the ALIGNER placed the read, as (diagonal, x_lo, x_hi) bands.
 
     A run counts as 'main' only if it lies on one of these diagonals AND overlaps that
-    band's x-range. Testing the diagonal alone is not enough: in a repeat array a short
-    ladder run can sit at the same diagonal offset while being nowhere near the
-    alignment, and would then be mis-coloured.
+    band's x-range. Testing the diagonal alone is not enough: in a repeat array a ladder
+    run can sit at the same diagonal offset while being nowhere near the alignment.
+
+    Bands are then grown along their own diagonal through runs that are collinear and
+    nearly contiguous (see extend_bands), so a black line is a literally continuous
+    diagonal rather than only the aligned part of one. That is the point: when an
+    insertion duplicates the reference immediately upstream, the duplicated copy lies on
+    the same diagonal, and drawing it black shows how much of the reference the read
+    carries twice.
 
     This is the only use made of the aligner's answer -- it colours runs, it is not
     drawn."""
@@ -127,6 +136,26 @@ def _self_compare(ctx, p):
     fwd = filter_min_length(merge_segments(fa, fb, p.gap, False), k, p.min_seg)
     rev = filter_min_length(merge_segments(ra, rb, p.gap, True), k, p.min_seg)
     return fwd, rev, n
+
+
+def extend_bands(bands, a0, x_end, d, tol=DIAG_TOL, gap=EXTEND_GAP):
+    """Grow each identity band along its own diagonal through collinear runs separated
+    by at most `gap`, so the black path follows the whole continuous diagonal."""
+    out = []
+    for bd, lo, hi in bands:
+        on = np.abs(d - bd) <= tol
+        if on.any():
+            xs, xe = a0[on], x_end[on]
+            while True:
+                near = (xe >= lo - gap) & (xs <= hi + gap)
+                if not near.any():
+                    break
+                nlo, nhi = min(lo, int(xs[near].min())), max(hi, int(xe[near].max()))
+                if nlo == lo and nhi == hi:
+                    break
+                lo, hi = nlo, nhi
+        out.append((bd, lo, hi))
+    return out
 
 
 def _block_ticks(plot_lo, plot_hi, coord_lo, fmt):
@@ -195,9 +224,11 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
         xy = np.stack([np.column_stack([a0, b0]),
                        np.column_stack([a1 + k - 1, b1 + k - 1])], axis=1)
         run_d, run_hi = b0 - a0, a1 + k
+        need = np.maximum(1, (run_hi - a0) * MIN_OVERLAP)
         is_main = np.zeros(a0.size, dtype=bool)
-        for d, lo, hi in bands:
-            is_main |= ((np.abs(run_d - d) <= DIAG_TOL) & (run_hi > lo) & (a0 < hi))
+        for d, lo, hi in extend_bands(bands, a0, run_hi, run_d):
+            overlap = np.minimum(run_hi, hi) - np.maximum(a0, lo)
+            is_main |= (np.abs(run_d - d) <= DIAG_TOL) & (overlap >= need)
         for sel, col, z in ((~is_main, params.colour_ext, 2),
                             (is_main, params.colour_main, 3)):
             if sel.any():

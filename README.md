@@ -50,11 +50,17 @@ concatenated sequences. That one comparison fills four quadrants:
 Reading the two corner quadrants against each other is the point: if the read's repeat
 ladder continues the reference's unbroken, the read preserved the repeat phase.
 
-**Colour.** Forward matches are split by whether the aligner placed the read on that
-diagonal: **black** (`--colour_main`) for the diagonals of its aligned blocks plus the
-self-identity diagonal, **grey70** (`--colour_ext`) for every other diagonal — the
-repeat ladder. Reverse-complement matches are vermillion (an inversion or foldback);
-they are never a main diagonal. This is the only use made of the alignment.
+**Colour.** **Black** (`--colour_main`) is the *main diagonal*: the alignment's own
+diagonals plus the self-identity one, each then followed along its full continuous
+extent through collinear matches. **Grey70** (`--colour_ext`) is every other diagonal —
+the repeat ladder. Reverse-complement matches are vermillion (an inversion or foldback)
+and are never a main diagonal.
+
+Following the diagonal past the aligned part is the point rather than a side effect.
+When an insertion duplicates the reference just upstream, the duplicated copy sits on
+the same diagonal as the alignment, so black traces both copies and you can read
+straight off the plot how much of the reference the read carries twice. The alignment
+is used to find these diagonals; it is never drawn.
 
 **Axes.** Ticks every 5 kb in both blocks, labelled only at each block's two ends —
 at 45 mm there is no room for more, and the ends give you the range. Reference
@@ -73,7 +79,7 @@ read's aligned span padded by 1 kb either side. Both are constants, not options.
 | `--min-seg` | 170 | drop diagonal runs shorter than this (bp). **The main de-cluttering control** — 170 is just under one CEN178 satellite unit (units vary 177–179 bp), so each surviving run is at least one monomer and the ladder spacing reads as the repeat period |
 | `--merge-gap` | k+1 | largest gap chained into one run. k+1 is exactly the step across a single substitution, so runs bridge isolated SNPs and nothing more; `1` gives strictly exact runs |
 | `--outdir` | `.` | output directory |
-| `--colour_main` | black | colour of the diagonals the aligner placed the read on |
+| `--colour_main` | black | colour of the main diagonals (alignment diagonals, followed to their full extent) |
 | `--colour_ext` | grey70 | colour of every other diagonal |
 
 ## Batch — `readrefdot-batch`
