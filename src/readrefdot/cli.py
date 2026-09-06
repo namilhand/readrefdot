@@ -81,8 +81,8 @@ def main(argv=None):
         params.colour_ext = a.colour_ext
 
     n_ok = n_fail = 0
-    for i, ctx in enumerate(_contexts(a.bam, a.ref, read_ids), 1):
-        if isinstance(ctx, Exception):
+    for i, ctx in enumerate(load(a.bam, a.ref, read_ids, skip_missing=True), 1):
+        if isinstance(ctx, ReadNotFound):
             print(f"[{i}/{len(read_ids)}] FAILED: {ctx}", file=sys.stderr)
             n_fail += 1
             continue
@@ -96,19 +96,6 @@ def main(argv=None):
     print(f"\n{n_ok} plot(s) in {a.outdir}" + (f", {n_fail} failed" if n_fail else ""))
     if n_fail:
         sys.exit(1)
-
-
-def _contexts(bam, ref, read_ids):
-    """Yield ReadContexts, turning a per-read failure into a value so one bad read
-    does not abort a long --all run."""
-    it = load(bam, ref, read_ids)
-    while True:
-        try:
-            yield next(it)
-        except StopIteration:
-            return
-        except ReadNotFound as e:
-            yield e
 
 
 if __name__ == "__main__":

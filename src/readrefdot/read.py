@@ -99,8 +99,11 @@ def _context_from(alns, n_sec, fasta, read_id):
                        n_alignments=len(alns), n_secondary_ignored=n_sec)
 
 
-def load(bam_path, ref_path, read_ids):
+def load(bam_path, ref_path, read_ids, skip_missing=False):
     """Yield a ReadContext for each requested read id, in one pass over the BAM.
+
+    With skip_missing=True a read that is absent yields a ReadNotFound instance (carrying
+    .read_id) instead of raising, so one missing read cannot abort the rest of the batch.
 
     Secondary alignments (flag 0x100) are alternative placements, so they are ignored:
     including them would stretch the reference window for no gain."""
@@ -119,7 +122,12 @@ def load(bam_path, ref_path, read_ids):
     try:
         for rid in read_ids:
             if rid not in found:
-                raise ReadNotFound(f"read {rid!r} not found in {bam_path}")
+                err = ReadNotFound(f"read {rid!r} not found in {bam_path}")
+                err.read_id = rid
+                if skip_missing:
+                    yield err
+                    continue
+                raise err
             yield _context_from(found[rid], n_sec.get(rid, 0), fasta, rid)
     finally:
         fasta.close()

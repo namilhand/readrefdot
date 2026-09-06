@@ -76,6 +76,38 @@ read's aligned span padded by 1 kb either side. Both are constants, not options.
 | `--colour_main` | black | colour of the diagonals the aligner placed the read on |
 | `--colour_ext` | grey70 | colour of every other diagonal |
 
+## Batch — `readrefdot-batch`
+
+Run many plots from a TSV, one row per plot. Each row carries its own inputs, output
+location and arguments, so one file can mix samples, references and settings.
+
+```bash
+readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redraw
+```
+
+| column | required | meaning |
+|---|---|---|
+| `bam` | ✓ | BAM containing the read |
+| `readid` | ✓ | read to plot |
+| `reference` | ✓ | reference FASTA |
+| `outdir` | ✓ | directory to write into (created if absent) |
+| `suffix` | ✓ | output file stem → `<outdir>/<suffix>.quad.png` and `.pdf` |
+| `k`, `min-seg`, `merge-gap`, `panel-mm` | | per-row overrides; blank = default |
+| `colour_main`, `colour_ext` | | per-row colours |
+| `ref-lines`, `read-lines` | | annotation positions, comma-separated |
+
+Column names accept either `-` or `_`. Blank cells mean "use the default".
+
+**Rows whose output already exists are skipped**, so the wrapper is safe to re-run after
+adding rows or after a failure; `--force` redraws.
+
+The manifest is validated before anything is drawn — every unusable row is reported at
+once, rather than failing partway through. Once running, a row that fails (a read absent
+from its BAM, say) is reported and the rest continue.
+
+Rows sharing a BAM and reference are grouped so the BAM is scanned once per group rather
+than once per row; the scan dominates runtime.
+
 ## Annotation (optional)
 
 ```bash
