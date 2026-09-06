@@ -30,8 +30,18 @@ class Lines:
         return bool(self.ref or self.read)
 
     def marks(self, ctx):
-        """Positions on the concatenated [reference | read] axis of the quad plot."""
-        R = len(ctx.ref_seq)
-        n = R + len(ctx.read_seq)
-        vals = [p - 1 - ctx.win_start for p in self.ref] + [R + p for p in self.read]
-        return [v for v in vals if 0 <= v <= n]
+        """Positions on the concatenated [reference | read] axis of the quad plot.
+
+        Each coordinate is clipped to its OWN block. A reference position outside the
+        plotted window maps past the block boundary, and would otherwise be drawn inside
+        the read block -- a line in the wrong half of the plot rather than no line."""
+        R, Q = len(ctx.ref_seq), len(ctx.read_seq)
+        out = []
+        for p in self.ref:
+            v = p - 1 - ctx.win_start
+            if 0 <= v <= R:
+                out.append(v)
+        for p in self.read:
+            if 0 <= p <= Q:
+                out.append(R + p)
+        return out
