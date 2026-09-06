@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "readrefdot"
+version = "0.1.0"
+description = "k-mer dot plots comparing a long read with the reference genome region it maps to"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+dependencies = ["pysam>=0.19", "numpy>=1.20", "matplotlib>=3.4"]
+keywords = ["dotplot", "long-read", "HiFi", "genomics", "satellite", "repeat"]
+
+[project.scripts]
+readrefdot = "readrefdot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["readrefdot*"]

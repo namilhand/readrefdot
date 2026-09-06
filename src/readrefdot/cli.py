@@ -1,0 +1,115 @@
+"""readrefdot - k-mer dot plots of a long read against the reference it maps to."""
+
+import argparse
+import os
+import re
+import sys
+
+from . import __version__
+from .annotate import Lines
+from .plot import Params, quad
+from .read import ReadNotFound, iter_primary, load
+
+_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def safe_name(read_id):
+    """Read ids contain '/', which cannot go in a filename."""
+    return _SAFE.sub("_", read_id).strip("_")
+
+
+def build_parser():
+    p = argparse.ArgumentParser(
+        prog="readrefdot",
+        description="k-mer dot plots comparing a long read with the reference genome "
+                    "region it maps to.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.add_argument("--version", action="version", version=f"readrefdot {__version__}")
+    p.add_argument("--bam", required=True, help="BAM containing the read(s)")
+    p.add_argument("--ref", required=True, help="reference FASTA the BAM was aligned to")
+
+    sel = p.add_mutually_exclusive_group(required=True)
+    sel.add_argument("--read", nargs="+", metavar="ID", help="read id(s) to plot")
+    sel.add_argument("--all", action="store_true",
+                     help="plot every primary alignment in the BAM")
+
+    p.add_argument("--outdir", default=".", help="directory for the output files")
+    p.add_argument("--name", metavar="NAME",
+                   help="output file stem, giving <NAME>.quad.png/.pdf "
+                        "(default: the read id)")
+    p.add_argument("-k", "--kmer", type=int, default=20, help="k-mer size (5-31)")
+    p.add_argument("--min-seg", type=int, default=170,
+                   help="drop diagonal runs shorter than this (bp)")
+    p.add_argument("--merge-gap", type=int, default=None,
+                   help="max gap chained into one run (default k+1, which bridges a "
+                        "single substitution)")
+    p.add_argument("--panel-mm", "--panel_mm", type=float, default=45.0,
+                   help="size of the square plot box in mm, excluding title and labels")
+    p.add_argument("--colour_main", "--colour-main", default=None, metavar="COLOUR",
+                   help="colour of the diagonals the aligner placed the read on "
+                        "(default: black)")
+    p.add_argument("--colour_ext", "--colour-ext", default=None, metavar="COLOUR",
+                   help="colour of every other diagonal (default: grey40)")
+    p.add_argument("--ref-lines", metavar="P,...",
+                   help="guide lines at these reference positions (1-based)")
+    p.add_argument("--read-lines", metavar="P,...",
+                   help="guide lines at these read positions (0-based)")
+    return p
+
+
+def main(argv=None):
+    a = build_parser().parse_args(argv)
+    if not 5 <= a.kmer <= 31:
+        sys.exit("--kmer must be between 5 and 31")
+    lines = Lines.parse(a.ref_lines, a.read_lines)
+    if lines and a.all:
+        sys.exit("--ref-lines/--read-lines describe one read; use --read, not --all")
+    if lines and len(a.read) > 1:
+        sys.exit("--ref-lines/--read-lines describe one read; give a single --read")
+    if a.name and (a.all or len(a.read) > 1):
+        sys.exit("--name gives one file stem; use it with a single --read")
+
+    read_ids = list(iter_primary(a.bam)) if a.all else a.read
+    if not read_ids:
+        sys.exit(f"no primary alignments in {a.bam}")
+    os.makedirs(a.outdir, exist_ok=True)
+    params = Params(kmer=a.kmer, min_seg=a.min_seg, merge_gap=a.merge_gap,
+                    panel_mm=a.panel_mm)
+    if a.colour_main:
+        params.colour_main = a.colour_main
+    if a.colour_ext:
+        params.colour_ext = a.colour_ext
+
+    n_ok = n_fail = 0
+    for i, ctx in enumerate(_contexts(a.bam, a.ref, read_ids), 1):
+        if isinstance(ctx, Exception):
+            print(f"[{i}/{len(read_ids)}] FAILED: {ctx}", file=sys.stderr)
+            n_fail += 1
+            continue
+        stem = os.path.join(a.outdir, a.name or safe_name(ctx.read_id))
+        paths, st = quad(ctx, params, stem, lines=lines or None)
+        print(f"[{i}/{len(read_ids)}] {ctx.read_id}  {ctx.window}  "
+              f"ref {len(ctx.ref_seq):,} + read {ctx.read_len:,} bp  "
+              f"{st['n_fwd']:,} fwd / {st['n_rev']:,} rev  -> {os.path.basename(paths[0])}")
+        n_ok += 1
+
+    print(f"\n{n_ok} plot(s) in {a.outdir}" + (f", {n_fail} failed" if n_fail else ""))
+    if n_fail:
+        sys.exit(1)
+
+
+def _contexts(bam, ref, read_ids):
+    """Yield ReadContexts, turning a per-read failure into a value so one bad read
+    does not abort a long --all run."""
+    it = load(bam, ref, read_ids)
+    while True:
+        try:
+            yield next(it)
+        except StopIteration:
+            return
+        except ReadNotFound as e:
+            yield e
+
+
+if __name__ == "__main__":
+    main()
