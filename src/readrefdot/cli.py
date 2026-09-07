@@ -7,6 +7,7 @@ import sys
 
 from . import __version__
 from .annotate import Lines
+from . import tree as tree_mod
 from .monomer import DEFAULT_CUT, write_tsv
 from .plot import Params, quad
 from .read import ReadNotFound, iter_primary, load
@@ -56,6 +57,10 @@ def build_parser():
                         "of the panel instead of genomic coordinates")
     p.add_argument("--monomer-period", type=int, default=None, metavar="BP",
                    help="satellite unit length (default: detect it from the sequence)")
+    p.add_argument("--monomer-style", choices=("lollipop", "block"), default="lollipop",
+                   help="how a monomer is drawn on the axis")
+    p.add_argument("--no-tree", action="store_true",
+                   help="skip the neighbour-joining tree of the monomers")
     p.add_argument("--monomer-cut", type=float, default=DEFAULT_CUT, metavar="F",
                    help="group monomers whose estimated identity is at least this")
     p.add_argument("--monomer-tsv", action="store_true",
@@ -85,7 +90,8 @@ def main(argv=None):
     os.makedirs(a.outdir, exist_ok=True)
     params = Params(kmer=a.kmer, min_seg=a.min_seg, merge_gap=a.merge_gap,
                     panel_mm=a.panel_mm, monomer=a.monomer or a.monomer_tsv,
-                    monomer_period=a.monomer_period, monomer_cut=a.monomer_cut)
+                    monomer_period=a.monomer_period, monomer_cut=a.monomer_cut,
+                    monomer_style=a.monomer_style)
     if a.colour_main:
         params.colour_main = a.colour_main
     if a.colour_ext:
@@ -99,6 +105,10 @@ def main(argv=None):
             continue
         stem = os.path.join(a.outdir, a.name or safe_name(ctx.read_id))
         paths, st = quad(ctx, params, stem, lines=lines or None)
+        if st["monomer"] is not None and not a.no_tree:
+            tree_mod.draw(st["monomer"], stem, panel_mm=a.panel_mm,
+                          title=f"{ctx.read_id}\n{st['monomer'].n_full} monomers, "
+                                f"{st['monomer'].n_groups} groups")
         if a.monomer_tsv and st["monomer"] is not None:
             write_tsv(st["monomer"], ctx, f"{stem}.monomers.tsv")
         if params.monomer and st["monomer"] is None:

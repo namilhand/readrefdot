@@ -6,7 +6,8 @@ skipped, making the wrapper safe to re-run after adding rows or after a failure.
 
 Required columns  bam, readid, reference, outdir, suffix
 Optional columns  k, min-seg, merge-gap, panel-mm, colour_main, colour_ext,
-                  ref-lines, read-lines, monomer, monomer-period, monomer-cut
+                  ref-lines, read-lines, monomer, monomer-period, monomer-cut,
+                  monomer-style
                   (blank means "use the default"; '-' spellings also accepted with '_')
 
 `suffix` is the output file stem: a row writes <outdir>/<suffix>.quad.png and .pdf.
@@ -18,13 +19,15 @@ import os
 import sys
 from collections import OrderedDict
 
+from . import tree as tree_mod
 from .annotate import Lines
 from .plot import Params, quad
 from .read import ReadNotFound, load
 
 REQUIRED = ("bam", "readid", "reference", "outdir", "suffix")
 OPTIONAL = ("k", "min-seg", "merge-gap", "panel-mm", "colour_main", "colour_ext",
-            "ref-lines", "read-lines", "monomer", "monomer-period", "monomer-cut")
+            "ref-lines", "read-lines", "monomer", "monomer-period", "monomer-cut",
+            "monomer-style")
 FORMATS = ("png", "pdf")
 
 
@@ -93,6 +96,8 @@ def params_for(v):
         p.monomer_period = int(v["monomer-period"])
     if v["monomer-cut"]:
         p.monomer_cut = float(v["monomer-cut"])
+    if v["monomer-style"]:
+        p.monomer_style = v["monomer-style"]
     return p
 
 
@@ -160,8 +165,15 @@ def main(argv=None):
                 os.makedirs(v["outdir"], exist_ok=True)
                 lines = Lines.parse(v["ref-lines"], v["read-lines"])
                 try:
-                    paths, st = quad(ctx, params_for(v), stem,
-                                     lines=lines or None, formats=FORMATS)
+                    par = params_for(v)
+                    paths, st = quad(ctx, par, stem, lines=lines or None,
+                                     formats=FORMATS)
+                    if st["monomer"] is not None:
+                        tree_mod.draw(st["monomer"], stem, panel_mm=par.panel_mm,
+                                      formats=FORMATS,
+                                      title=f"{ctx.read_id}\n"
+                                            f"{st['monomer'].n_full} monomers, "
+                                            f"{st['monomer'].n_groups} groups")
                     print(f"[{done}/{len(todo)}] {v['suffix']}  {ctx.window}  "
                           f"{st['n_fwd']:,} fwd / {st['n_rev']:,} rev  "
                           f"-> {os.path.basename(paths[0])}")

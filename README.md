@@ -34,6 +34,7 @@ including them would stretch the reference window for no gain.
 
 `<outdir>/<readid>.quad.png` and `.quad.pdf`, at 300 dpi with fonts embedded.
 Characters that cannot appear in a filename (`/` in particular) become `_`.
+With `--monomer`, also `<readid>.tree.png` / `.tree.pdf`.
 
 ## The plot
 
@@ -119,7 +120,9 @@ the line stops that far short of the panel edge.
 | `--monomer` | off | annotate satellite monomers instead of coordinates (below) |
 | `--monomer-period` | detect | satellite unit length in bp |
 | `--monomer-cut` | 0.95 | identity at which two monomers join the same group |
+| `--monomer-style` | lollipop | `lollipop` (stick + circle) or `block` |
 | `--monomer-tsv` | off | also write `<name>.monomers.tsv`, one row per unit |
+| `--no-tree` | off | skip the monomer tree |
 
 ## Monomer annotation (`--monomer`)
 
@@ -159,6 +162,13 @@ in the sequences themselves, in three steps:
    abundant variant is always the first palette colour. Partial units at the array edges
    are left grey.
 
+Each unit is drawn as a **lollipop** — a stick from the panel edge out to a circle
+coloured by group. The circle is auto-sized to the space one unit actually gets: a 45 mm
+panel over ~220 monomers leaves each 0.2 mm, so at that density the circles sit side by
+side and the strip reads as a coloured line on a comb rather than as separate dots.
+`--monomer-style block` draws a solid block per unit instead, which is denser to read at
+a glance and is the better choice for a long array.
+
 Grouping is **per plot**: a colour identifies a variant within one figure and carries no
 meaning across figures. `--monomer-tsv` writes the units out — position, group, length,
 sequence — which is what to use when groups need to be compared between plots.
@@ -166,6 +176,38 @@ sequence — which is what to use when groups need to be compared between plots.
 The default cut of 0.95 is what separates CEN178 variants in these arrays; 0.90 merges
 almost everything into one group, and above 0.97 the groups start to split on individual
 substitutions. The title reports how many units, of what length, in how many groups.
+
+### The tree
+
+`--monomer` also writes `<name>.tree.png` / `.pdf`: a neighbour-joining tree of the same
+units, tips coloured by the same groups, laid out with Felsenstein's equal-angle
+algorithm so it reads as an unrooted radial tree. The dot plot says where the units are;
+the tree says how they are related. `--no-tree` skips it.
+
+Two things to know when reading it. The distance is **alignment-free** — 1 − the
+shared-k-mer identity estimate that drives the grouping — so the scale bar is labelled
+"distance", not substitutions per site; it is a similarity tree of satellite variants,
+not a substitution-model phylogeny. And **identical units land on the same point**, so a
+tree of 200 monomers can show 40 visible tips; that overlap is real information (those
+monomers have the same sequence), not a drawing fault.
+
+### Relation to the published CEN178 consensus
+
+The units this finds are the published CEN178 monomer, but the tool derives its own
+phase from the sequence, so boundaries do not start where the published consensus
+starts. Rotated into register, a per-array consensus built from the tiled units matches
+the published 178 bp consensus at **94–98%** identity:
+
+| array | identity | rotation | strand |
+|---|---|---|---|
+| Chr4 Col-0 | 94.4% (10/178 differ) | 160 bp | reverse |
+| Chr4 Ler-0 | 97.8% (4/178) | 172 bp | reverse |
+| Chr1 Col-0 | 95.5% (8/178) | 171 bp | forward |
+
+So the tiling is finding the right unit, at an arbitrary rotation, and different arrays
+carry it in different orientations. Nothing downstream depends on the phase — groups,
+tree and the higher-order pattern are all rotation-invariant — but unit coordinates in
+`--monomer-tsv` are on this tool's phase, not the published one.
 
 ## Batch — `readrefdot-batch`
 
@@ -186,7 +228,7 @@ readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redr
 | `k`, `min-seg`, `merge-gap`, `panel-mm` | | per-row overrides; blank = default |
 | `colour_main`, `colour_ext` | | per-row colours |
 | `ref-lines`, `read-lines` | | annotation positions, comma-separated |
-| `monomer`, `monomer-period`, `monomer-cut` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false` |
+| `monomer`, `monomer-period`, `monomer-cut`, `monomer-style` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.tree.png`/`.pdf` |
 
 Column names accept either `-` or `_`. Blank cells mean "use the default".
 

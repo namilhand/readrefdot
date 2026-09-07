@@ -28,8 +28,10 @@ from .kmer import (build_index, filter_min_length, kmer_codes, match,
 MM = 1 / 25.4
 PANEL_MM = 45.0                 # default plot box, excluding title and labels
 TICK_STEP = 5000
-STRIP_MM = 1.5                  # thickness of a monomer annotation strip
-STRIP_GAP_MM = 0.7              # gap between the panel and its strip
+STRIP_MM = {"lollipop": 2.4, "block": 1.5}   # thickness of the monomer strip, by style
+STRIP_GAP_MM = 0.4              # gap between the panel and its strip
+DOT_MIN, DOT_MAX = 0.7, 3.0     # pt: monomer marker diameter, auto-sized to the spacing
+STEM_FRAC = 0.55                # of the strip: how far the stick reaches before the dot
 
 COL_MAIN = "#000000"            # diagonals the aligner placed the read on
 COL_EXT = "#B2B2B2"             # grey70 - every other diagonal
@@ -67,6 +69,7 @@ class Params:
     monomer: bool = False       # annotate satellite monomers instead of coordinates
     monomer_period: int = None  # unit length in bp (default: detect it)
     monomer_cut: float = mono.DEFAULT_CUT   # identity at which units group together
+    monomer_style: str = "lollipop"         # "lollipop" or "block"
 
     @property
     def gap(self):
@@ -206,33 +209,60 @@ def _ticks(ctx, R, Q):
     return rp + qp, rl + ql, len(rp)
 
 
-def _strips(fig, geom, R, n, track):
-    """The monomer annotation: a coloured block per unit, along the top and the right
+def _dot_size(panel_mm, n_units):
+    """Marker diameter in pt, from the space one unit actually gets. A 45 mm panel over
+    ~220 monomers gives each 0.2 mm, so the dots are sized to sit side by side rather
+    than to a fixed size that would overlap into a solid bar."""
+    return float(np.clip(panel_mm / max(n_units, 1) * 0.9 * 72 / 25.4, DOT_MIN, DOT_MAX))
+
+
+def _lollipops(ax, centres, cols, dot, vertical):
+    """A stick from the panel edge out to a coloured circle, one per monomer."""
+    base, tip = 0.0, STEM_FRAC
+    if vertical:                                    # the strip along the top
+        segs = [[(c, base), (c, tip)] for c in centres]
+        pts = (centres, np.full(centres.size, (tip + 1.0) / 2))
+    else:                                           # the strip along the right
+        segs = [[(base, c), (tip, c)] for c in centres]
+        pts = (np.full(centres.size, (tip + 1.0) / 2), centres)
+    ax.add_collection(LineCollection(segs, colors=cols, linewidths=0.2, zorder=1))
+    ax.scatter(pts[0], pts[1], s=dot ** 2, c=cols, linewidths=0, zorder=2)
+
+
+def _strips(fig, geom, R, n, track, style, panel_mm):
+    """The monomer annotation: one mark per satellite unit, along the top and the right
     of the whole panel (so it labels the reference block and the read block in turn).
 
-    Colour = similarity group, so a repeating colour pattern in the strip is the array's
-    higher-order structure, and the two blocks can be read against each other."""
+    Colour = similarity group, so a repeating colour pattern is the array's higher-order
+    structure, and the two blocks can be read against each other."""
     ml, mb, box, gap, strip, fw, fh = geom
     starts = np.array([u.start for u in track.units], dtype=float)
     widths = np.array([u.length for u in track.units], dtype=float)
     centres = starts + widths / 2
     cols = track.colours()
+    dot = _dot_size(panel_mm, len(track.units))
 
     top = fig.add_axes([ml / fw, (mb + box + gap) / fh, box / fw, strip / fh])
-    top.bar(centres, height=1.0, width=widths, color=cols, linewidth=0, align="center")
-    top.set_xlim(0, n); top.set_ylim(0, 1)
-    top.axvline(R, color="black", lw=0.5)
-
     right = fig.add_axes([(ml + box + gap) / fw, mb / fh, strip / fw, box / fh])
-    right.barh(centres, width=1.0, height=widths, color=cols, linewidth=0,
-               align="center")
+    if style == "block":
+        top.bar(centres, height=1.0, width=widths, color=cols, linewidth=0,
+                align="center")
+        right.barh(centres, width=1.0, height=widths, color=cols, linewidth=0,
+                   align="center")
+    else:
+        _lollipops(top, centres, cols, dot, vertical=True)
+        _lollipops(right, centres, cols, dot, vertical=False)
+    top.set_xlim(0, n); top.set_ylim(0, 1)
     right.set_xlim(0, 1); right.set_ylim(0, n)
-    right.axhline(R, color="black", lw=0.5)
+    top.axvline(R, color="black", lw=0.5, ymax=1.0 if style == "block" else STEM_FRAC)
+    right.axhline(R, color="black", lw=0.5, xmax=1.0 if style == "block" else STEM_FRAC)
 
     for a in (top, right):
         a.set_xticks([]); a.set_yticks([])
-        for sp in a.spines.values():
-            sp.set_visible(True); sp.set_linewidth(0.25); sp.set_color("black")
+        for name, sp in a.spines.items():
+            keep = style == "block" or name in (("bottom",) if a is top else ("left",))
+            sp.set_visible(keep)
+            sp.set_linewidth(0.25); sp.set_color("black")
     return top
 
 
@@ -247,7 +277,8 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
 
     mpl.rcParams.update(STYLE)
     box = params.panel_mm * MM
-    strip, gap = STRIP_MM * MM, STRIP_GAP_MM * MM
+    style = params.monomer_style if params.monomer_style in STRIP_MM else "lollipop"
+    strip, gap = STRIP_MM[style] * MM, STRIP_GAP_MM * MM
     if track is None:
         ml, mr, mb, mt = 0.46, 0.08, 0.46, 0.44    # inches of margin, room for ticks
     else:                                          # no tick labels, but strips instead
@@ -295,7 +326,8 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
     strip_ax = None
     if track is not None:
         ax.set_xticks([]); ax.set_yticks([])
-        strip_ax = _strips(fig, (ml, mb, box, gap, strip, fw, fh), R, n, track)
+        strip_ax = _strips(fig, (ml, mb, box, gap, strip, fw, fh), R, n, track,
+                           style, params.panel_mm)
     else:
         _coordinate_ticks(fig, ax, ctx, R, Q)
 
