@@ -22,7 +22,7 @@ from typing import List
 
 import numpy as np
 
-from .kmer import kmer_codes
+from .kmer import build_index, kmer_codes, match, revcomp
 
 ANCHOR_K = 16              # k for period detection and phase anchors: long enough to be
                            # near-unique within one unit, short enough to survive a SNP
@@ -32,7 +32,17 @@ PERIOD_TOL = 6             # bp a gap may differ from the period and still count
 VOTE_TOL = 6               # bp within which boundary votes are the same boundary
 MIN_ANCHOR_HITS = 3        # occurrences before a k-mer can be an anchor
 MAX_ANCHORS = 60
+CONS_K = 12                # k for matching the consensus: survives ~5% divergence
+MIN_CONS_COVER = 0.5       # consensus phasing needs a vote for this many expected units
 MIN_FULL = 0.7             # a unit shorter than this x period is a partial (array edge)
+
+# The published CEN178 (aTha178) consensus. Used only to fix the PHASE -- where a unit
+# starts -- so that unit 1 means the same stretch of the monomer in every plot and in the
+# literature. Arrays match it at 94-98% and some carry it in reverse, both of which the
+# matching handles; nothing here assumes the array equals the consensus.
+CEN178 = ("AGTATAAGAACTTAAACCGCAACCCGATCTTAAAAGCCTAAGTAGTGTTTCCTTGTTAGAAGACACAAAGCCAAAGACTCA"
+          "TATGGACTTTGGCTACACCATGAAAGCTTTGAGAAGCAAGAAGAAGGTTGGTTAGTGTTTTGGAGTCGAATATGACTTGAT"
+          "GTCATGTGTATGATTG")
 DEFAULT_CUT = 0.95         # group units whose estimated identity is >= this
 
 # Group colours, most abundant group first. Okabe-Ito first (colour-blind safe), then
@@ -59,6 +69,7 @@ class Unit:
 @dataclass
 class MonomerTrack:
     period: int
+    phase: str = "de novo"             # what fixed the unit boundaries
     units: List[Unit] = field(default_factory=list)
     n_groups: int = 0
     identity: np.ndarray = None        # pairwise identity of the grouped units
@@ -168,6 +179,32 @@ def _boundary_votes(anchors, period):
     return pos, seg_end - brk
 
 
+def _consensus_votes(seq, cons, k=CONS_K):
+    """Unit starts implied by consensus k-mer matches, best orientation first.
+
+    A consensus k-mer at consensus position `a` matching the sequence at `b` says a unit
+    starts at `b - a`. Every surviving k-mer of every unit votes, so the phase comes from
+    the consensus rather than from whichever self-anchor happened to rank first -- which
+    is the one thing the self-anchored tiling cannot keep stable between reads.
+
+    Returns (votes, weights, strand, n_hits)."""
+    _, _, sorted_vals, order = build_index(seq, k)
+    best = (np.empty(0, int), np.empty(0, int), "+", 0)
+    for strand, c in (("+", cons), ("-", revcomp(cons))):
+        cv, cvalid = kmer_codes(c, k)
+        qpos, tpos, _ = match(cv, cvalid, sorted_vals, order)
+        if qpos.size == 0:
+            continue
+        starts = np.sort(tpos - qpos)
+        brk = np.flatnonzero(np.r_[True, np.diff(starts) > VOTE_TOL])
+        end = np.r_[brk[1:], starts.size]
+        pos = np.array([int(np.median(starts[a:b])) for a, b in zip(brk, end)])
+        wt = end - brk
+        if int(wt.sum()) > best[3]:
+            best = (pos, wt, strand, int(wt.sum()))
+    return best
+
+
 def _tile_block(votes, weights, b0, b1, period):
     """Walk the votes into a continuous tiling of [b0, b1).
 
@@ -265,8 +302,14 @@ def _average_linkage(dist, cut):
     return labels
 
 
-def annotate(ctx, period=None, cut=DEFAULT_CUT, anchor_k=ANCHOR_K, sim_k=SIM_K):
+def annotate(ctx, period=None, cut=DEFAULT_CUT, anchor_k=ANCHOR_K, sim_k=SIM_K,
+             consensus=CEN178):
     """Tile the reference window and the read into monomers and group them.
+
+    `consensus` fixes the phase (default: the published CEN178 monomer); pass None to
+    take the phase from the sequence itself. Either way the boundaries are placed by the
+    same vote-and-walk, so the tiling is equally robust -- what the consensus buys is that
+    unit 1 starts at the same point in the monomer in every plot.
 
     Returns a MonomerTrack whose unit coordinates index the concatenated
     [reference | read] axis of the quad plot. Returns None when the sequences are not
@@ -278,10 +321,22 @@ def annotate(ctx, period=None, cut=DEFAULT_CUT, anchor_k=ANCHOR_K, sim_k=SIM_K):
     if not period:
         period = detect_period(S, anchor_k)
     if not period:
+        period = len(consensus) if consensus else 0
+    if not period:
         return None
 
-    anchors = _anchor_panel(S, period, anchor_k)
-    votes, weights = _boundary_votes(anchors, period)
+    phase = "de novo"
+    votes = weights = None
+    if consensus:
+        v, w, strand, _ = _consensus_votes(S, consensus)
+        # Only trust it if it actually phases the array: enough units carry a vote.
+        strong = int(np.count_nonzero(w >= 3))
+        if strong >= MIN_CONS_COVER * len(S) / period:
+            votes, weights = v, w
+            phase = f"consensus ({'forward' if strand == '+' else 'reverse'})"
+    if votes is None:
+        anchors = _anchor_panel(S, period, anchor_k)
+        votes, weights = _boundary_votes(anchors, period)
 
     units = []
     for name, b0, b1 in blocks:
@@ -297,7 +352,7 @@ def annotate(ctx, period=None, cut=DEFAULT_CUT, anchor_k=ANCHOR_K, sim_k=SIM_K):
     labels = _average_linkage(1.0 - ident, 1.0 - cut)
     for u, g in zip(full, labels):
         u.group = int(g)
-    return MonomerTrack(period=period, units=units,
+    return MonomerTrack(period=period, phase=phase, units=units,
                         n_groups=int(labels.max() + 1) if labels.size else 0,
                         identity=ident)
 
@@ -308,7 +363,7 @@ def write_tsv(track, ctx, path):
     R = len(ctx.ref_seq)
     with open(path, "w") as fh:
         fh.write("block\tindex\tplot_start\tplot_end\tblock_start\tref_pos\t"
-                 "length\tgroup\tpartial\tsequence\n")
+                 "length\tgroup\tpartial\tphase\tsequence\n")
         n = {"ref": 0, "read": 0}
         for u in track.units:
             n[u.block] += 1
@@ -316,5 +371,5 @@ def write_tsv(track, ctx, path):
             refpos = (ctx.win_start + u.start + 1) if u.block == "ref" else "."
             fh.write(f"{u.block}\t{n[u.block]}\t{u.start}\t{u.end}\t{bstart}\t{refpos}\t"
                      f"{u.length}\t{u.group if u.group >= 0 else '.'}\t"
-                     f"{int(u.partial)}\t{S[u.start:u.end]}\n")
+                     f"{int(u.partial)}\t{track.phase}\t{S[u.start:u.end]}\n")
     return path

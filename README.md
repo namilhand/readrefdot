@@ -121,6 +121,7 @@ the line stops that far short of the panel edge.
 | `--monomer-period` | detect | satellite unit length in bp |
 | `--monomer-cut` | 0.95 | identity at which two monomers join the same group |
 | `--monomer-style` | lollipop | `lollipop` (stick + circle) or `block` |
+| `--monomer-consensus` | built-in CEN178 | FASTA of the repeat consensus that fixes where a unit starts; `none` derives the phase from the sequence |
 | `--monomer-tsv` | off | also write `<name>.monomers.tsv`, one row per unit |
 | `--no-tree` | off | skip the monomer tree |
 
@@ -146,7 +147,25 @@ in the sequences themselves, in three steps:
 1. **Period.** Almost every k-mer in a tandem array recurs one unit later, so the
    histogram of distances between successive copies of the same 16-mer has a sharp mode
    at the unit length. No mode ⇒ not an array ⇒ the plot falls back to coordinates.
-2. **Phase.** Every 16-mer that recurs at that spacing is a candidate marker of the same
+2. **Phase — from the published consensus by default.** Where a unit *starts* is the one
+   thing the sequence cannot settle on its own: any rotation of the monomer tiles it
+   equally well, and which rotation you get depends on which self-anchor happens to rank
+   first, so two reads over the same locus can be cut at different points. So the phase is
+   taken from the published CEN178 consensus, which ships with the tool. Every consensus
+   k-mer that matches at sequence position `b` from consensus position `a` implies a unit
+   start at `b − a`; those implied starts are the votes. Orientation is detected (arrays
+   carry the monomer either way round — Chr4 reverse, Chr1 and Chr3 forward in Col-0), and
+   if the consensus does not phase the array the tool falls back to the self-anchored
+   method below. `--monomer-consensus FASTA` supplies a different repeat's consensus;
+   `--monomer-consensus none` forces the self-anchored method.
+
+   The two agree: on four reads, consensus tiling and self-anchored tiling produce the
+   same units differing by a **constant rotation** (18, 6, 7 and 86 bp), each exactly
+   `178 −` the rotation measured independently between the array consensus and the
+   published one. Consensus votes back 98.2–98.9% of boundaries, the same as the anchor
+   panel, with a higher median vote weight (71–102 agreeing k-mers vs 43–53).
+
+3. **Phase without a consensus (the fallback).** Every 16-mer that recurs at that spacing is a candidate marker of the same
    point in successive units. Each is checked for a *consistent* offset from the best one
    along the whole array — modulo the period, so a marker still votes in the units where
    the best one was mutated away — and a k-mer sitting at a different place in different
@@ -158,7 +177,7 @@ in the sequences themselves, in three steps:
    remaining ~1% of boundaries are placed by stepping one period, never more than one in a
    row, so nothing drifts. Reference and read are tiled separately but from the same anchor
    panel, so a boundary means the same thing in both blocks.
-3. **Groups.** Units are compared by shared 8-mer content (a Mash-style identity
+4. **Groups.** Units are compared by shared 8-mer content (a Mash-style identity
    estimate — exact pairwise alignment would be more accurate and is not worth it, since
    the numbers only have to separate satellite variants) and clustered by average
    linkage, cut at `--monomer-cut`. Groups are colour-ordered by size, so the most
@@ -209,10 +228,10 @@ the published 178 bp consensus at **94–98%** identity:
 | Chr4 Ler-0 | 97.8% (4/178) | 172 bp | reverse |
 | Chr1 Col-0 | 95.5% (8/178) | 171 bp | forward |
 
-So the tiling is finding the right unit, at an arbitrary rotation, and different arrays
-carry it in different orientations. Nothing downstream depends on the phase — groups,
-tree and the higher-order pattern are all rotation-invariant — but unit coordinates in
-`--monomer-tsv` are on this tool's phase, not the published one.
+Since the tool now takes its phase from that consensus by default, unit 1 starts at the
+consensus start in every plot, and unit coordinates in `--monomer-tsv` are directly
+comparable between reads, samples and papers. The `phase` column records which reference
+fixed them, and the orientation the array carries.
 
 ## Batch — `readrefdot-batch`
 
@@ -233,7 +252,7 @@ readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redr
 | `k`, `min-seg`, `merge-gap`, `panel-mm` | | per-row overrides; blank = default |
 | `colour_main`, `colour_ext` | | per-row colours |
 | `ref-lines`, `read-lines` | | annotation positions, comma-separated |
-| `monomer`, `monomer-period`, `monomer-cut`, `monomer-style` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.tree.png`/`.pdf` |
+| `monomer`, `monomer-period`, `monomer-cut`, `monomer-style`, `monomer-consensus` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.tree.png`/`.pdf` |
 
 Column names accept either `-` or `_`. Blank cells mean "use the default".
 

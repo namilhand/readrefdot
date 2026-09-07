@@ -8,7 +8,7 @@ import sys
 from . import __version__
 from .annotate import Lines
 from . import tree as tree_mod
-from .monomer import DEFAULT_CUT, write_tsv
+from .monomer import CEN178, DEFAULT_CUT, write_tsv
 from .plot import Params, quad
 from .read import ReadNotFound, iter_primary, load
 
@@ -18,6 +18,26 @@ _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 def safe_name(read_id):
     """Read ids contain '/', which cannot go in a filename."""
     return _SAFE.sub("_", read_id).strip("_")
+
+
+def read_consensus(arg):
+    """None -> the built-in CEN178; 'none' -> de novo phase; else the first FASTA record."""
+    if arg is None:
+        return CEN178
+    if arg.lower() in ("none", "off", "-"):
+        return None
+    seq = []
+    with open(arg) as fh:
+        for line in fh:
+            if line.startswith(">"):
+                if seq:
+                    break
+                continue
+            seq.append(line.strip())
+    text = "".join(seq).upper()
+    if not text:
+        sys.exit(f"--monomer-consensus: no sequence in {arg}")
+    return text
 
 
 def build_parser():
@@ -59,6 +79,10 @@ def build_parser():
                    help="satellite unit length (default: detect it from the sequence)")
     p.add_argument("--monomer-style", choices=("lollipop", "block"), default="lollipop",
                    help="how a monomer is drawn on the axis")
+    p.add_argument("--monomer-consensus", default=None, metavar="FASTA",
+                   help="repeat consensus that fixes where a unit starts "
+                        "(default: the published CEN178 monomer; 'none' = take the phase "
+                        "from the sequence itself)")
     p.add_argument("--no-tree", action="store_true",
                    help="skip the neighbour-joining tree of the monomers")
     p.add_argument("--monomer-cut", type=float, default=DEFAULT_CUT, metavar="F",
@@ -91,7 +115,8 @@ def main(argv=None):
     params = Params(kmer=a.kmer, min_seg=a.min_seg, merge_gap=a.merge_gap,
                     panel_mm=a.panel_mm, monomer=a.monomer or a.monomer_tsv,
                     monomer_period=a.monomer_period, monomer_cut=a.monomer_cut,
-                    monomer_style=a.monomer_style)
+                    monomer_style=a.monomer_style,
+                    monomer_consensus=read_consensus(a.monomer_consensus))
     if a.colour_main:
         params.colour_main = a.colour_main
     if a.colour_ext:

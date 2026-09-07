@@ -70,6 +70,7 @@ class Params:
     monomer_period: int = None  # unit length in bp (default: detect it)
     monomer_cut: float = mono.DEFAULT_CUT   # identity at which units group together
     monomer_style: str = "lollipop"         # "lollipop" or "block"
+    monomer_consensus: str = mono.CEN178    # phase reference; None = take it from the data
 
     @property
     def gap(self):
@@ -274,8 +275,8 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
     R, Q = len(ctx.ref_seq), len(ctx.read_seq)
     fwd, rev, n = _self_compare(ctx, params)
 
-    track = mono.annotate(ctx, period=params.monomer_period,
-                          cut=params.monomer_cut) if params.monomer else None
+    track = mono.annotate(ctx, period=params.monomer_period, cut=params.monomer_cut,
+                          consensus=params.monomer_consensus) if params.monomer else None
 
     mpl.rcParams.update(STYLE)
     box = params.panel_mm * MM
@@ -352,7 +353,8 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
              f"ref {R:,} + read {Q:,} bp  ·  k={k}, min_seg={params.min_seg}")
     if track is not None:                          # its own line: the title sets the
         title += (f"\n{track.n_full} monomers of {track.period} bp, "   # figure width
-                  f"{track.n_groups} groups at {int(params.monomer_cut * 100)}% identity")
+                  f"{track.n_groups} groups at {int(params.monomer_cut * 100)}% identity"
+                  f"\nphase: {track.phase}")
     (strip_ax or ax).set_title(title, fontsize=5, linespacing=1.6)
 
     paths = []

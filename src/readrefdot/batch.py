@@ -7,7 +7,7 @@ skipped, making the wrapper safe to re-run after adding rows or after a failure.
 Required columns  bam, readid, reference, outdir, suffix
 Optional columns  k, min-seg, merge-gap, panel-mm, colour_main, colour_ext,
                   ref-lines, read-lines, monomer, monomer-period, monomer-cut,
-                  monomer-style
+                  monomer-style, monomer-consensus
                   (blank means "use the default"; '-' spellings also accepted with '_')
 
 `suffix` is the output file stem: a row writes <outdir>/<suffix>.quad.png and .pdf.
@@ -21,13 +21,14 @@ from collections import OrderedDict
 
 from . import tree as tree_mod
 from .annotate import Lines
+from .cli import read_consensus
 from .plot import Params, quad
 from .read import ReadNotFound, load
 
 REQUIRED = ("bam", "readid", "reference", "outdir", "suffix")
 OPTIONAL = ("k", "min-seg", "merge-gap", "panel-mm", "colour_main", "colour_ext",
             "ref-lines", "read-lines", "monomer", "monomer-period", "monomer-cut",
-            "monomer-style")
+            "monomer-style", "monomer-consensus")
 FORMATS = ("png", "pdf")
 
 
@@ -98,6 +99,8 @@ def params_for(v):
         p.monomer_cut = float(v["monomer-cut"])
     if v["monomer-style"]:
         p.monomer_style = v["monomer-style"]
+    if v["monomer-consensus"]:
+        p.monomer_consensus = read_consensus(v["monomer-consensus"])
     return p
 
 
