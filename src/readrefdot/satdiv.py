@@ -28,10 +28,9 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 
 from . import monomer as mono
-from .plot import MM, STYLE
+from .plot import MM, STEM_MM, STYLE, _dot_size, _lollipops
 
 PANEL_MM = 25.0            # default heat map box, per block
-STRIP_MM = 1.2             # thickness of the monomer colour strip
 GAP_MM = 0.4               # panel to strip
 INTER_MM = 5.0             # between the reference group and the read group
 CB_GAP_MM = 3.5            # strip to colour bar
@@ -152,13 +151,24 @@ def _limits(mats, p):
     return (lo, hi) if hi > lo else (lo, lo + 1.0)
 
 
-def _panel(fig, geom, D, cols, cmap, lo, hi, label):
-    """One heat map with its monomer strips along the top and the right."""
+def _panel(fig, geom, D, cols, cmap, lo, hi, label, span, dot, stem):
+    """One heat map with its monomer lollipops along the top and the right.
+
+    The axes run left to right and BOTTOM TO TOP, so monomer 1 is at the bottom-left
+    corner and the array reads outwards in both directions.
+
+    `span` is the number of monomer slots the box holds, and is the same for both panels
+    so a cell is the same size in each and the two can be compared directly. A block with
+    fewer monomers than `span` simply leaves the far end of the box empty -- the room an
+    insertion takes up in the other block."""
     x0, y0, box, gap, strip, fw, fh = geom
     n = D.shape[0]
     ax = fig.add_axes([x0 / fw, y0 / fh, box / fw, box / fh])
-    im = ax.imshow(D, cmap=cmap, vmin=lo, vmax=hi, extent=(0, n, n, 0),
-                   interpolation="nearest", aspect="auto")
+    im = None
+    if n:
+        im = ax.imshow(D, cmap=cmap, vmin=lo, vmax=hi, extent=(0, n, 0, n),
+                       origin="lower", interpolation="nearest", aspect="auto")
+    ax.set_xlim(0, span); ax.set_ylim(0, span)
     ax.set_xticks([]); ax.set_yticks([])
     for sp in ax.spines.values():
         sp.set_linewidth(0.5); sp.set_color("black")
@@ -166,13 +176,14 @@ def _panel(fig, geom, D, cols, cmap, lo, hi, label):
     centres = np.arange(n) + 0.5
     top = fig.add_axes([x0 / fw, (y0 + box + gap) / fh, box / fw, strip / fh])
     right = fig.add_axes([(x0 + box + gap) / fw, y0 / fh, strip / fw, box / fh])
-    top.bar(centres, height=1.0, width=1.0, color=cols, linewidth=0, align="center")
-    right.barh(centres, width=1.0, height=1.0, color=cols, linewidth=0, align="center")
-    top.set_xlim(0, n); top.set_ylim(0, 1)
-    right.set_xlim(0, 1); right.set_ylim(n, 0)      # matches the heat map's y direction
+    _lollipops(top, centres, cols, dot, True, stem)
+    _lollipops(right, centres, cols, dot, False, stem)
+    top.set_xlim(0, span); top.set_ylim(0, 1)
+    right.set_xlim(0, 1); right.set_ylim(0, span)   # matches the heat map's y direction
     for a in (top, right):
         a.set_xticks([]); a.set_yticks([])
-        for sp in a.spines.values():
+        for name, sp in a.spines.items():
+            sp.set_visible(name in (("bottom",) if a is top else ("left",)))
             sp.set_linewidth(0.25); sp.set_color("black")
 
     ax.annotate(label, xy=(0.5, 0), xycoords="axes fraction", xytext=(0, -5),
@@ -200,7 +211,14 @@ def draw(ctx, params, out_stem, formats=("pdf", "png")):
 
     mpl.rcParams.update(STYLE)
     box = params.panel_mm * MM
-    strip, gap, inter = STRIP_MM * MM, GAP_MM * MM, INTER_MM * MM
+    # Both boxes hold the same number of monomer slots, so a cell is the same size in
+    # each: the shorter block leaves the far end of its box empty rather than stretching
+    # to fill it, and the gap is exactly the length the other block has gained.
+    span = max(p[3].shape[0] for p in panels) or 1
+    dot = _dot_size(params.panel_mm, span)
+    stem_mm = STEM_MM * MM
+    strip = stem_mm + dot / 72 / 2 + 0.05 * MM      # the stick plus half a circle
+    gap, inter = GAP_MM * MM, INTER_MM * MM
     cb_gap, cb_w = CB_GAP_MM * MM, CB_W_MM * MM
     ml, mb, mt, mr = 0.10, 0.16, 0.50, 0.34
     group = box + gap + strip
@@ -212,8 +230,10 @@ def draw(ctx, params, out_stem, formats=("pdf", "png")):
     im = None
     for i, (name, units, cols, D) in enumerate(panels):
         x0 = ml + i * (group + inter)
-        _, im = _panel(fig, (x0, mb, box, gap, strip, fw, fh), D, cols, params.cmap,
-                       lo, hi, f"{labels[name]}  ({D.shape[0]} monomers)")
+        _, got = _panel(fig, (x0, mb, box, gap, strip, fw, fh), D, cols, params.cmap,
+                        lo, hi, f"{labels[name]}  ({D.shape[0]} monomers)", span,
+                        dot, stem_mm / strip)
+        im = im or got
 
     cax = fig.add_axes([(ml + 2 * group + inter + cb_gap) / fw, mb / fh, cb_w / fw,
                         box / fh])

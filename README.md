@@ -344,10 +344,20 @@ One page, two panels: the **reference window on the left, the read on the right*
 25 mm square by default (`--panel-mm`). Each panel is a self-comparison — the block is cut
 into CEN178 monomers by exactly the tiling `--monomer` uses, every monomer is compared
 with every other, and the n × n matrix of percent divergence is drawn as a heat map with
-the monomers in array order on both axes. The coloured strips along the top and the right
-are the same similarity groups the dot plot annotates, from the same dendrogram: both
-blocks are tiled and grouped **together**, so a colour means the same monomer family in
-the reference panel and in the read panel.
+the monomers in array order on both axes. Both axes run **left to right and bottom to
+top**, so monomer 1 sits in the bottom-left corner and the array reads outwards; the main
+diagonal climbs from bottom-left to top-right.
+
+The lollipops along the top and the right are the same similarity groups the dot plot
+annotates, drawn the same way and from the same dendrogram: both blocks are tiled and
+grouped **together**, so a colour means the same monomer family in the reference panel and
+in the read panel.
+
+**The two boxes hold the same number of monomer slots**, `max(n_ref, n_read)`, so a cell
+is the same size in each and the panels can be laid against one another directly. The
+shorter block leaves the far end of its box **blank** rather than stretching to fill it,
+and that blank is exactly the length the other block has gained: an insertion of 23
+monomers in the read shows as 23 empty slots at the top and right of the reference panel.
 
 Output is `<stem>.satdiv.pdf` and `.png`; `--matrix-tsv` also writes
 `<stem>.satdiv.ref.tsv` and `.read.tsv`, the matrices themselves with each monomer's
