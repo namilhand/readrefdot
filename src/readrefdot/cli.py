@@ -83,8 +83,11 @@ def build_parser():
                    help="repeat consensus that fixes where a unit starts "
                         "(default: the published CEN178 monomer; 'none' = take the phase "
                         "from the sequence itself)")
-    p.add_argument("--no-tree", action="store_true",
-                   help="skip the neighbour-joining tree of the monomers")
+    p.add_argument("--tree-method", choices=("dendrogram", "nj"), default="dendrogram",
+                   help="dendrogram = the grouping tree itself (colours are its branches); "
+                        "nj = a separate neighbour-joining tree")
+    p.add_argument("--no-tree", "--no-dendrogram", action="store_true", dest="no_tree",
+                   help="skip the monomer dendrogram")
     p.add_argument("--monomer-cut", type=float, default=DEFAULT_CUT, metavar="F",
                    help="group monomers whose estimated identity is at least this")
     p.add_argument("--monomer-tsv", action="store_true",
@@ -132,6 +135,7 @@ def main(argv=None):
         paths, st = quad(ctx, params, stem, lines=lines or None)
         if st["monomer"] is not None and not a.no_tree:
             tree_mod.draw(st["monomer"], stem, panel_mm=a.panel_mm,
+                          method=a.tree_method,
                           title=f"{ctx.read_id}\n{st['monomer'].n_full} monomers, "
                                 f"{st['monomer'].n_groups} groups")
         if a.monomer_tsv and st["monomer"] is not None:

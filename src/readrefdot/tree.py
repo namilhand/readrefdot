@@ -1,4 +1,12 @@
-"""Neighbour-joining tree of the monomers in one plot.
+"""The monomer dendrogram — and, optionally, a neighbour-joining tree.
+
+The dendrogram is the SAME clustering that colours the axis: one average-linkage tree,
+cut once. So a colour is a branch, the cut is a line you can see, and the picture cannot
+disagree with the annotation. Neighbour joining is kept for when a rate-corrected,
+unrooted topology is wanted (`--tree-method nj`); it is a second clustering of the same
+distances and will not agree with the colours exactly.
+
+Neighbour-joining tree of the monomers in one plot.
 
 The dot plot says where the satellite units are; the tree says how they are related.
 Tips are the units of that plot, coloured by the same similarity group as the axis
@@ -109,12 +117,114 @@ def _scale_value(span):
     return min(SCALE_STEPS, key=lambda s: abs(np.log(s / target)) if s > 0 else np.inf)
 
 
-def draw(track, out_stem, panel_mm=45.0, formats=("png", "pdf"), title=None):
+def _dendrogram_layout(merges, n):
+    """Leaf order and node coordinates for a rectangular dendrogram.
+
+    Leaves are ordered by an in-order walk of the merge tree, which is what keeps the
+    branches from crossing."""
+    kids = {}
+    nxt = n
+    for a, b, h in merges:
+        kids[nxt] = (a, b, h)
+        nxt += 1
+    root = nxt - 1
+    order, stack = [], [root]
+    while stack:                                  # iterative in-order walk
+        node = stack.pop()
+        if node < n:
+            order.append(node)
+        else:
+            a, b, _ = kids[node]
+            stack.extend((b, a))                  # a first
+    xpos = {leaf: i for i, leaf in enumerate(order)}
+    height = {leaf: 0.0 for leaf in range(n)}
+    for node in range(n, nxt):
+        a, b, h = kids[node]
+        xpos[node] = (xpos[a] + xpos[b]) / 2
+        height[node] = h
+    return order, xpos, height, kids, root
+
+
+def draw_dendrogram(track, out_stem, panel_mm=45.0, formats=("png", "pdf"), title=None):
+    """Write <out_stem>.dendrogram.png/.pdf: the grouping tree, cut line and all."""
+    n = 0 if track.identity is None else track.identity.shape[0]
+    if n < 3 or not track.merges:
+        return []
+    full = [u for u in track.units if not u.partial and u.satellite]
+    order, xpos, height, kids, root = _dendrogram_layout(track.merges, n)
+
+    mpl.rcParams.update(STYLE)
+    box = panel_mm * MM
+    ml, mr, mb, mt = 0.30, 0.06, 0.20, 0.44 if title else 0.06
+    fw, fh = box + ml + mr, box + mb + mt
+    fig = plt.figure(figsize=(fw, fh))
+    ax = fig.add_axes([ml / fw, mb / fh, box / fw, box / fh])
+
+    def colour_of(node):
+        """A branch takes the group's colour while it is still inside that group."""
+        if height[node] > track.cut:
+            return "#000000"
+        leaf = node
+        while leaf >= n:
+            leaf = kids[leaf][0]
+        g = full[leaf].group
+        return PALETTE[g] if 0 <= g < len(PALETTE) else UNSET
+
+    segs, cols = [], []
+    for node in range(n, n + len(track.merges)):
+        a, b, h = kids[node]
+        for child in (a, b):
+            segs.append([(xpos[child], height[child]), (xpos[child], h)])
+            cols.append(colour_of(child))
+        segs.append([(xpos[a], h), (xpos[b], h)])
+        cols.append(colour_of(node))
+    ax.add_collection(LineCollection(segs, colors=cols, linewidths=0.35, zorder=2))
+
+    tip = float(np.clip(panel_mm / max(n, 1) * 0.9 / 25.4 * 72, TIP_MIN, TIP_MAX))
+    tcol = [PALETTE[full[i].group] if 0 <= full[i].group < len(PALETTE) else UNSET
+            for i in range(n)]
+    ax.scatter([xpos[i] for i in range(n)], np.zeros(n), s=tip ** 2,
+               c=tcol, linewidths=0, zorder=3, clip_on=False)
+
+    top = max(height.values()) or 1.0
+    ax.axhline(track.cut, color="#444444", lw=0.5, ls=(0, (3, 2)), zorder=4)
+    ax.text(n * 0.99, track.cut, f"{(1 - track.cut) * 100:.0f}%", ha="right", va="bottom",
+            fontsize=5, color="#444444")
+    ax.set_xlim(-0.5, n - 0.5)
+    ax.set_ylim(0, top * 1.06)
+    ax.set_xticks([])
+    ax.set_ylabel("distance", fontsize=5.5, color="#444444", labelpad=2)
+    ax.tick_params(axis="y", labelsize=5, width=0.5, color="black", length=2)
+    ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(4))
+    for name, sp in ax.spines.items():
+        sp.set_visible(name == "left")
+        sp.set_linewidth(0.5)
+    if title:
+        ax.set_title(title, fontsize=5, linespacing=1.6)
+
+    paths = []
+    for fmt in formats:
+        path = f"{out_stem}.dendrogram.{fmt}"
+        fig.savefig(path, format=fmt)
+        paths.append(path)
+    plt.close(fig)
+    return paths
+
+
+def draw(track, out_stem, panel_mm=45.0, formats=("png", "pdf"), title=None,
+         method="dendrogram"):
+    """Draw the monomer tree. `method` is "dendrogram" (the grouping tree) or "nj"."""
+    if method != "nj":
+        return draw_dendrogram(track, out_stem, panel_mm, formats, title)
+    return draw_nj(track, out_stem, panel_mm, formats, title)
+
+
+def draw_nj(track, out_stem, panel_mm=45.0, formats=("png", "pdf"), title=None):
     """Write <out_stem>.tree.png/.pdf. Returns the paths, or [] if there is no tree."""
     ident = track.identity
     if ident is None or ident.shape[0] < 3:
         return []
-    full = [u for u in track.units if not u.partial]
+    full = [u for u in track.units if not u.partial and u.satellite]
     dist = np.clip(1.0 - ident, 0.0, None)
     np.fill_diagonal(dist, 0.0)
     children, root = neighbour_joining(dist)

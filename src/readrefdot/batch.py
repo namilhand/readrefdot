@@ -28,7 +28,7 @@ from .read import ReadNotFound, load
 REQUIRED = ("bam", "readid", "reference", "outdir", "suffix")
 OPTIONAL = ("k", "min-seg", "merge-gap", "panel-mm", "colour_main", "colour_ext",
             "ref-lines", "read-lines", "monomer", "monomer-period", "monomer-cut",
-            "monomer-style", "monomer-consensus")
+            "monomer-style", "monomer-consensus", "tree-method")
 FORMATS = ("png", "pdf")
 
 
@@ -174,6 +174,7 @@ def main(argv=None):
                     if st["monomer"] is not None:
                         tree_mod.draw(st["monomer"], stem, panel_mm=par.panel_mm,
                                       formats=FORMATS,
+                                      method=v["tree-method"] or "dendrogram",
                                       title=f"{ctx.read_id}\n"
                                             f"{st['monomer'].n_full} monomers, "
                                             f"{st['monomer'].n_groups} groups")

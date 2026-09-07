@@ -80,6 +80,8 @@ class MonomerTrack:
     units: List[Unit] = field(default_factory=list)
     n_groups: int = 0
     identity: np.ndarray = None        # pairwise identity of the grouped units
+    merges: list = field(default_factory=list)   # the average-linkage merge history
+    cut: float = 0.0                   # distance at which that history was cut
 
     def colours(self):
         out = []
@@ -412,36 +414,66 @@ def _unit_similarity(seqs, k=SIM_K):
     return ident
 
 
-def _average_linkage(dist, cut):
-    """Average-linkage agglomerative clustering, stopping at `cut`.
+def linkage(dist):
+    """Full average-linkage (UPGMA) merge history, smallest distance first.
 
-    n is a few hundred at most, so the naive O(n^3) loop is instant and avoids a scipy
-    dependency."""
+    Returns [(a, b, height), ...]; ids 0..n-1 are the units and n+k is the node made by
+    the k-th merge. n is a few hundred at most, so the naive O(n^3) loop is instant and
+    avoids a scipy dependency.
+
+    This is the one clustering in the tool: the groups are this tree cut at
+    `--monomer-cut`, and the dendrogram is this tree drawn. There is no second algorithm
+    that could disagree with the first."""
     n = dist.shape[0]
-    if n == 0:
-        return np.empty(0, dtype=int)
+    if n < 2:
+        return []
     d = dist.astype(float).copy()
     np.fill_diagonal(d, np.inf)
-    members = [[i] for i in range(n)]
-    alive = np.ones(n, dtype=bool)
+    ids = list(range(n))
     sizes = np.ones(n)
-    while alive.sum() > 1:
-        sub = np.where(alive[:, None] & alive[None, :], d, np.inf)
+    merges = []
+    nxt = n
+    while len(ids) > 1:
+        idx = np.array(ids)
+        sub = d[np.ix_(idx, idx)]
         i, j = np.unravel_index(np.argmin(sub), sub.shape)
-        if sub[i, j] > cut:
+        h = float(sub[i, j])
+        a, b = int(idx[i]), int(idx[j])
+        merges.append((a, b, h))
+        # average linkage: the new distance is the size-weighted mean of the two
+        new = (sizes[a] * d[a] + sizes[b] * d[b]) / (sizes[a] + sizes[b])
+        grow = d.shape[0]
+        d = np.pad(d, ((0, 1), (0, 1)), constant_values=np.inf)
+        d[grow, :grow] = new
+        d[:grow, grow] = new
+        d[grow, grow] = np.inf
+        sizes = np.append(sizes, sizes[a] + sizes[b])
+        ids = [x for x in ids if x not in (a, b)] + [nxt]
+        nxt += 1
+    return merges
+
+
+def cut_linkage(merges, n, cut):
+    """Label each unit by the cluster it sits in when the tree is cut at `cut`.
+
+    Groups are numbered by size, largest first, so the most abundant variant is always
+    the first palette colour."""
+    if n == 0:
+        return np.empty(0, dtype=int)
+    members = {i: [i] for i in range(n)}
+    alive = set(range(n))
+    nxt = n
+    for a, b, h in merges:
+        if h > cut:
             break
-        new = (sizes[i] * d[i] + sizes[j] * d[j]) / (sizes[i] + sizes[j])
-        d[i] = new
-        d[:, i] = new
-        d[i, i] = np.inf
-        sizes[i] += sizes[j]
-        members[i] += members[j]
-        alive[j] = False
-        members[j] = []
+        members[nxt] = members[a] + members[b]
+        alive.discard(a)
+        alive.discard(b)
+        alive.add(nxt)
+        nxt += 1
     labels = np.full(n, -1, dtype=int)
-    groups = sorted((m for m in members if m), key=len, reverse=True)
-    for g, mem in enumerate(groups):
-        labels[mem] = g
+    for g, node in enumerate(sorted(alive, key=lambda k: -len(members[k]))):
+        labels[members[node]] = g
     return labels
 
 
@@ -511,12 +543,13 @@ def annotate(ctx, period=None, cut=DEFAULT_CUT, anchor_k=ANCHOR_K, sim_k=SIM_K,
         lens = np.array([u.length for u in full])
         period = int(np.bincount(lens).argmax())
     ident = _unit_similarity([S[u.start:u.end] for u in full], sim_k)
-    labels = _average_linkage(1.0 - ident, 1.0 - cut)
+    merges = linkage(1.0 - ident)
+    labels = cut_linkage(merges, len(full), 1.0 - cut)
     for u, g in zip(full, labels):
         u.group = int(g)
     return MonomerTrack(period=period, phase=phase, units=units,
                         n_groups=int(labels.max() + 1) if labels.size else 0,
-                        identity=ident)
+                        identity=ident, merges=merges, cut=1.0 - cut)
 
 
 def write_tsv(track, ctx, path):

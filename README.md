@@ -34,7 +34,7 @@ including them would stretch the reference window for no gain.
 
 `<outdir>/<readid>.quad.png` and `.quad.pdf`, at 300 dpi with fonts embedded.
 Characters that cannot appear in a filename (`/` in particular) become `_`.
-With `--monomer`, also `<readid>.tree.png` / `.tree.pdf`.
+With `--monomer`, also `<readid>.dendrogram.png` / `.dendrogram.pdf`.
 
 ## The plot
 
@@ -123,7 +123,8 @@ the line stops that far short of the panel edge.
 | `--monomer-style` | lollipop | `lollipop` (stick + circle) or `block` |
 | `--monomer-consensus` | built-in CEN178 | FASTA of the repeat consensus that fixes where a unit starts; `none` derives the phase from the sequence |
 | `--monomer-tsv` | off | also write `<name>.monomers.tsv`, one row per unit |
-| `--no-tree` | off | skip the monomer tree |
+| `--tree-method` | dendrogram | `dendrogram` (the grouping tree) or `nj` (a separate neighbour-joining tree) |
+| `--no-tree` | off | skip the monomer dendrogram |
 
 ## Monomer annotation (`--monomer`)
 
@@ -211,7 +212,8 @@ themselves. Four steps:
 4. **Groups.** Units are compared by shared 8-mer content (a Mash-style identity
    estimate — exact pairwise alignment would be more accurate and is not worth it, since
    the numbers only have to separate satellite variants) and clustered by average
-   linkage, cut at `--monomer-cut`. Groups are colour-ordered by size, so the most
+   linkage. That tree is built once and cut at `--monomer-cut`; the groups are its
+   branches below the cut, and the dendrogram is the same tree drawn. Groups are colour-ordered by size, so the most
    abundant variant is always the first palette colour. Partial units at the array edges
    are left light grey, non-satellite blocks dark grey.
 
@@ -232,19 +234,25 @@ The default cut of 0.95 is what separates CEN178 variants in these arrays; 0.90 
 almost everything into one group, and above 0.97 the groups start to split on individual
 substitutions. The title reports how many units, of what length, in how many groups.
 
-### The tree
+### The dendrogram
 
-`--monomer` also writes `<name>.tree.png` / `.pdf`: a neighbour-joining tree of the same
-units, tips coloured by the same groups, laid out with Felsenstein's equal-angle
-algorithm so it reads as an unrooted radial tree. The dot plot says where the units are;
-the tree says how they are related. `--no-tree` skips it.
+`--monomer` also writes `<name>.dendrogram.png` / `.pdf`: **the grouping tree itself**,
+drawn. Branches below the cut carry their group's colour, everything above it is black,
+and the cut is a dashed line labelled with `--monomer-cut`. So a colour on the axis is a
+branch in this figure, and the two cannot disagree — there is one clustering in the tool,
+not two. `--no-tree` skips it.
 
-Two things to know when reading it. The distance is **alignment-free** — 1 − the
-shared-k-mer identity estimate that drives the grouping — so the scale bar is labelled
-"distance", not substitutions per site; it is a similarity tree of satellite variants,
-not a substitution-model phylogeny. And **identical units land on the same point**, so a
-tree of 200 monomers can show 40 visible tips; that overlap is real information (those
-monomers have the same sequence), not a drawing fault.
+The distance is **alignment-free** — 1 − the shared-k-mer identity estimate — so the axis
+is labelled "distance", not substitutions per site; this is a similarity tree of satellite
+variants, not a substitution-model phylogeny.
+
+`--tree-method nj` draws a neighbour-joining tree instead (`<name>.tree.png`), laid out
+with Felsenstein's equal-angle algorithm as an unrooted radial tree. It corrects for
+lineage rate differences, which average linkage does not, but it is a **second** clustering
+of the same distances and will not match the colours exactly: measured against the groups,
+the best agreement any cut of the NJ tree reaches is ARI 0.57 on one read and 0.96 on
+another. Angles in that layout carry no meaning, the centre is not an ancestor, and
+identical units land on the same point.
 
 ### Relation to the published CEN178 consensus
 
@@ -283,7 +291,7 @@ readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redr
 | `k`, `min-seg`, `merge-gap`, `panel-mm` | | per-row overrides; blank = default |
 | `colour_main`, `colour_ext` | | per-row colours |
 | `ref-lines`, `read-lines` | | annotation positions, comma-separated |
-| `monomer`, `monomer-period`, `monomer-cut`, `monomer-style`, `monomer-consensus` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.tree.png`/`.pdf` |
+| `monomer`, `monomer-period`, `monomer-cut`, `monomer-style`, `monomer-consensus` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.dendrogram.png`/`.pdf` |
 
 Column names accept either `-` or `_`. Blank cells mean "use the default".
 
