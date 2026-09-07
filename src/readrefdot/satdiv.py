@@ -1,5 +1,9 @@
-"""satdivplot - pairwise divergence between the satellite monomers of a read and its
-reference window.
+"""The divergence plot (--satdiv) - pairwise divergence between the satellite monomers of
+a read and its reference window.
+
+A second view of the same data readrefdot already has: the same tiling, the same grouping,
+the same annotated intervals, the same Params. `plot.quad` draws the sequence, `draw` here
+draws how far apart its monomers are.
 
 The quad dot plot shows where sequence recurs; this shows how far apart the copies are.
 Both sequences are cut into CEN178 monomers (the same tiling and the same grouping
@@ -25,8 +29,6 @@ downstream and any two monomers -- including one from each block -- are compared
 base-for-corresponding-base.
 """
 
-from dataclasses import dataclass
-
 import numpy as np
 import matplotlib as mpl
 mpl.use("Agg")
@@ -35,38 +37,16 @@ from matplotlib.colors import BoundaryNorm
 from matplotlib.patches import Rectangle
 
 from . import monomer as mono
-from .plot import MM, PANEL_MM, STEM_MM, STYLE, _dot_size, _lollipops
+from .plot import MM, STEM_MM, STYLE, _dot_size, _lollipops
 
-GAP_MM = 0.4               # panel to strip
+GAP_MM = 0.0               # panel to strip: the sticks start at the edge of the panel
 CB_GAP_MM = 3.5            # strip to colour bar
 CB_W_MM = 1.6
 CHUNK = 64                 # rows of the matrix computed at once
-DPI = 600                  # the raster output: a cell is well under a mm, so 300 is coarse
 BOX_LW = 0.3               # the box drawn around an annotated interval
-COL_BOX = "#000000"
-# Sequential, not diverging. Divergence has a true zero and no meaningful midpoint, so a
-# diverging map invents a centre and spends half its range on values the data never has --
-# which is what made these plots read as a wash of pale blue. viridis is perceptually
-# uniform, so equal steps of divergence look equally different (the bands ARE equal steps),
-# its lightness is monotone, so the ordering survives greyscale and any colour vision, and
-# its dark end is purple rather than black, which keeps the black annotation boxes visible.
-CMAP = "viridis"           # dark = alike, light = far apart
-VMAX = 20.0                # % divergence at the top of the scale; above it is OVER
-STEP = 1.0                 # % divergence per colour band
-COL_OVER = "#000000"       # a pair further apart than VMAX: off the scale, drawn black
+COL_ANNOT = "#FFFFFF"      # white: the annotation has to read against a dark heat map
+COL_OVER = "#000000"       # a pair further apart than the scale top: off it, drawn black
 COL_LAB = "#444444"
-
-
-@dataclass
-class Params:
-    panel_mm: float = PANEL_MM      # the whole box, as in the dot plot
-    cmap: str = CMAP
-    vmax: float = VMAX         # % divergence at the top of the scale
-    step: float = STEP         # width of one colour band, in % divergence
-    dpi: int = DPI             # raster resolution; the PDF stays vector either way
-    monomer_period: int = None
-    monomer_cut: float = mono.DEFAULT_CUT
-    monomer_consensus: str = mono.CEN178
 
 
 def project(unit, cons, match=2, mismatch=-3, gap=-5):
@@ -176,17 +156,23 @@ def _index_at(units, pos):
 
 
 def _spans(ctx, lines, units, n_ref):
-    """The annotated intervals as (lo, hi) monomer coordinates, per block.
+    """The annotation in monomer coordinates: (reference spans, read spans, read marks).
 
     `ref-lines`/`read-lines` hold the same intervals readrefdot draws: for an INS the
     donor region on the reference, and in the read both the donor's copy and the inserted
     segment; for a DEL the deleted block on the reference. `Lines.intervals` pairs the
-    endpoints (see `annotate.pair_up`) and clips each to its own block."""
+    endpoints (see `annotate.pair_up`) and clips each to its own block.
+
+    A read position that is not the edge of a drawn span comes back as a MARK. A deletion
+    is the case that matters: its read side is a junction, not a segment, so it gets no
+    box, and nothing in the divergence matrix says where in the read the sequence was
+    lost -- the monomers either side of it are simply neighbours. The mark is the only
+    thing that puts it on the plot."""
     if not lines or not units:
-        return [], []
+        return [], [], []
     ref_iv, read_iv = lines.intervals(ctx)
     ref_u, read_u = units[:n_ref], units[n_ref:]
-    out = []
+    out, drawn = [], set()
     for iv, us, off in ((ref_iv, ref_u, 0), (read_iv, read_u, n_ref)):
         got = []
         for a, b in iv:
@@ -195,8 +181,17 @@ def _spans(ctx, lines, units, n_ref):
             i, j = _index_at(us, a) + off, _index_at(us, b) + off
             if j - i >= 0.5:                # a point, not a segment (a deletion junction)
                 got.append((i, j))
+                if off:
+                    drawn |= {a, b}
         out.append(got)
-    return out[0], out[1]
+
+    R = len(ctx.ref_seq)
+    marks = []
+    for p in sorted({R + p for p in lines.read}) if read_u else []:
+        if p in drawn or p <= read_u[0].start or p >= read_u[-1].end:
+            continue
+        marks.append(_index_at(read_u, p) + n_ref)
+    return out[0], out[1], marks
 
 
 def _draw_boxes(ax, ref_spans, read_spans):
@@ -212,20 +207,36 @@ def _draw_boxes(ax, ref_spans, read_spans):
             rects += [(a, b, c, d), (c, d, a, b)]
     for x0, x1, y0, y1 in rects:
         ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
-                               edgecolor=COL_BOX, linewidth=BOX_LW, zorder=5))
+                               edgecolor=COL_ANNOT, linewidth=BOX_LW, zorder=5))
     return len(rects)
 
 
+def _draw_marks(ax, marks):
+    """A dashed cross-hair at a read position with no segment to box -- the junction a
+    deletion left behind."""
+    for m in marks:
+        ax.axvline(m, color=COL_ANNOT, lw=BOX_LW, ls=(0, (2, 2)), zorder=5)
+        ax.axhline(m, color=COL_ANNOT, lw=BOX_LW, ls=(0, (2, 2)), zorder=5)
+    return len(marks)
+
+
 def scale(params):
-    """A stepped diverging scale: one colour per `step` %, black above `vmax`.
+    """A stepped sequential scale: one colour per `satdiv_step` %, black above the top.
+
+    Sequential, not diverging: divergence has a true zero and no meaningful midpoint, so a
+    diverging map invents a centre and spends half its range on values the data never has.
+    viridis is perceptually uniform, so equal steps of divergence look equally different
+    (the bands ARE equal steps), and its lightness is monotone, so the ordering survives
+    greyscale and any colour vision.
 
     Fixed rather than fitted to the data, so the same colour means the same divergence in
-    every plot and two reads can be compared by eye. A pair further apart than `vmax` is
+    every plot and two reads can be compared by eye. A pair further apart than the top is
     off the scale entirely -- almost always a monomer that is barely this satellite -- and
     is drawn black rather than being allowed to stretch the range everything else is
     read on."""
-    bounds = np.arange(0.0, params.vmax + params.step / 2, params.step)
-    cmap = plt.get_cmap(params.cmap, len(bounds) - 1).copy()
+    vmax, step = params.satdiv_vmax, params.satdiv_step
+    bounds = np.arange(0.0, vmax + step / 2, step)
+    cmap = plt.get_cmap(params.satdiv_cmap, len(bounds) - 1).copy()
     cmap.set_over(COL_OVER)
     return cmap, BoundaryNorm(bounds, cmap.N)
 
@@ -248,9 +259,8 @@ def _strips(fig, geom, units, n_ref, n, panel_mm):
     right.axhline(n_ref, color="black", lw=0.5, xmax=stem)
     for a in (top, right):
         a.set_xticks([]); a.set_yticks([])
-        for name, sp in a.spines.items():
-            sp.set_visible(name in (("bottom",) if a is top else ("left",)))
-            sp.set_linewidth(0.25); sp.set_color("black")
+        for sp in a.spines.values():        # the panel's own frame is the strip's base
+            sp.set_visible(False)
     return top
 
 
@@ -276,8 +286,9 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     cmap, norm = scale(params)
 
     mpl.rcParams.update(STYLE)
-    box = params.panel_mm * MM
-    dot = _dot_size(params.panel_mm, n)
+    panel_mm = params.satdiv_panel_mm or params.panel_mm
+    box = panel_mm * MM
+    dot = _dot_size(panel_mm, n)
     strip = STEM_MM * MM + dot / 72 / 2 + 0.05 * MM     # the stick plus half a circle
     gap, cb_gap, cb_w = GAP_MM * MM, CB_GAP_MM * MM, CB_W_MM * MM
     ml, mb, mt, mr = 0.17, 0.17, 0.50, 0.34
@@ -288,17 +299,18 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     ax = fig.add_axes([ml / fw, mb / fh, box / fw, box / fh])
     im = ax.imshow(D, cmap=cmap, norm=norm, extent=(0, n, 0, n), origin="lower",
                    interpolation="nearest", aspect="auto")
-    ref_spans, read_spans = _spans(ctx, lines, units, n_ref)
+    ref_spans, read_spans, marks = _spans(ctx, lines, units, n_ref)
     n_box = _draw_boxes(ax, ref_spans, read_spans)
+    n_mark = _draw_marks(ax, marks)
     ax.set_xlim(0, n); ax.set_ylim(0, n)
-    ax.axvline(n_ref, color="black", lw=0.5, zorder=4)
-    ax.axhline(n_ref, color="black", lw=0.5, zorder=4)
+    ax.axvline(n_ref, color=COL_ANNOT, lw=0.5, zorder=4)
+    ax.axhline(n_ref, color=COL_ANNOT, lw=0.5, zorder=4)
     ax.set_xticks([]); ax.set_yticks([])
     for sp in ax.spines.values():
         sp.set_linewidth(0.5); sp.set_color("black")
 
     strip_ax = _strips(fig, (ml, mb, box, gap, strip, fw, fh), units, n_ref, n,
-                       params.panel_mm)
+                       panel_mm)
 
     for pos, lab in ((n_ref / 2, ctx.chrom), (n_ref + (n - n_ref) / 2, "read")):
         ax.annotate(lab, xy=(pos, 0), xycoords=("data", "axes fraction"),
@@ -311,21 +323,24 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     cax = fig.add_axes([(ml + box + gap + strip + cb_gap) / fw, mb / fh, cb_w / fw,
                         box / fh])
     cb = fig.colorbar(im, cax=cax, extend="max",
-                      ticks=np.arange(0, params.vmax + 1, max(1, params.vmax // 5)))
+                      ticks=np.arange(0, params.satdiv_vmax + 1,
+                                      max(1, params.satdiv_vmax // 5)))
     cb.outline.set_linewidth(0.4)
     cax.tick_params(width=0.4, length=1.6, labelsize=4.5, pad=1.2)
     cax.set_ylabel("monomer-pair divergence (%)", fontsize=5, color=COL_LAB, labelpad=2)
 
-    over = int((D > params.vmax).sum())
+    over = int((D > params.satdiv_vmax).sum())
     title = (f"{ctx.read_id}\n{ctx.window}  (strand {ctx.strand})\n"
              f"{n_ref} + {n - n_ref} monomers of {track.period} bp, "
              f"{track.n_groups} groups at {int(params.monomer_cut * 100)}% identity"
              f"\nphase: {track.phase}"
              + (f"  ·  {track.n_nonsatellite} non-satellite" if track.n_nonsatellite
                 else "")
-             + (f"  ·  {over:,} pairs over {params.vmax:g}%" if over else ""))
-    if n_box:
-        title += "\nbox: annotated donor, inserted or deleted segment"
+             + (f"  ·  {over:,} pairs over {params.satdiv_vmax:g}%" if over else ""))
+    if n_box or n_mark:
+        title += ("\nbox: annotated donor, inserted or deleted segment"
+                  if n_box else "")
+        title += "\ndashed: the deletion junction in the read" if n_mark else ""
     strip_ax.set_title(title, fontsize=5, linespacing=1.6)
 
     paths = []
@@ -334,7 +349,8 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
         fig.savefig(path, format=fmt, dpi=params.dpi)
         paths.append(path)
     plt.close(fig)
-    return paths, dict(n_ref=n_ref, n_read=n - n_ref, n_boxes=n_box, n_over=over,
+    return paths, dict(n_ref=n_ref, n_read=n - n_ref, n_boxes=n_box, n_marks=n_mark,
+                       n_over=over,
                        monomer=track, units=units, matrix=D)
 
 

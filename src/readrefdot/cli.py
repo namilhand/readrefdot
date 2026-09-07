@@ -7,6 +7,7 @@ import sys
 
 from . import __version__
 from .annotate import Lines
+from . import satdiv as satdiv_mod
 from . import tree as tree_mod
 from .monomer import CEN178, DEFAULT_CUT, write_tsv
 from .plot import Params, quad
@@ -92,6 +93,20 @@ def build_parser():
                    help="group monomers whose estimated identity is at least this")
     p.add_argument("--monomer-tsv", action="store_true",
                    help="also write <NAME>.monomers.tsv, one row per unit")
+    p.add_argument("--satdiv", action="store_true",
+                   help="also draw <NAME>.satdiv.png/.pdf: the pairwise divergence between "
+                        "the satellite monomers, in the same quad layout")
+    p.add_argument("--satdiv-panel-mm", type=float, default=None, metavar="MM",
+                   help="size of the divergence plot box (default: --panel-mm)")
+    p.add_argument("--satdiv-cmap", default="viridis",
+                   help="colormap for divergence; sequential, dark = alike")
+    p.add_argument("--satdiv-vmax", type=float, default=20.0, metavar="PCT",
+                   help="%% divergence at the top of the scale; a pair further apart "
+                        "than this is off the scale and drawn black")
+    p.add_argument("--satdiv-step", type=float, default=1.0, metavar="PCT",
+                   help="%% divergence per colour band")
+    p.add_argument("--matrix-tsv", action="store_true",
+                   help="with --satdiv, also write <NAME>.satdiv.tsv, the matrix itself")
     p.add_argument("--annot-style", choices=("box", "lines", "both"), default="box",
                    help="how --ref-lines/--read-lines are drawn: a black box around each "
                         "annotated interval, dotted guide lines at its ends, or both")
@@ -128,7 +143,9 @@ def main(argv=None):
                     monomer_period=a.monomer_period, monomer_cut=a.monomer_cut,
                     monomer_style=a.monomer_style,
                     monomer_consensus=read_consensus(a.monomer_consensus),
-                    annot_style=a.annot_style)
+                    annot_style=a.annot_style, satdiv=a.satdiv or a.matrix_tsv,
+                    satdiv_panel_mm=a.satdiv_panel_mm, satdiv_cmap=a.satdiv_cmap,
+                    satdiv_vmax=a.satdiv_vmax, satdiv_step=a.satdiv_step)
     if a.dpi:
         params.dpi = a.dpi
     if a.colour_main:
@@ -151,6 +168,15 @@ def main(argv=None):
                                 f"{st['monomer'].n_groups} groups")
         if a.monomer_tsv and st["monomer"] is not None:
             write_tsv(st["monomer"], ctx, f"{stem}.monomers.tsv")
+        if params.satdiv:
+            try:
+                _, sd = satdiv_mod.draw(ctx, params, stem, lines=lines or None)
+                if a.matrix_tsv:
+                    satdiv_mod.write_tsv(ctx, sd["units"], sd["n_ref"], sd["matrix"],
+                                         f"{stem}.satdiv.tsv")
+            except ValueError as e:
+                print(f"    note: no divergence plot for {ctx.read_id}: {e}",
+                      file=sys.stderr)
         if params.monomer and st["monomer"] is None:
             print(f"    note: {ctx.read_id} is not a tandem array; "
                   f"drew coordinates instead", file=sys.stderr)

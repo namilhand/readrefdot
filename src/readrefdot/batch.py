@@ -7,11 +7,12 @@ skipped, making the wrapper safe to re-run after adding rows or after a failure.
 Required columns  bam, readid, reference, outdir, suffix
 Optional columns  k, min-seg, merge-gap, panel-mm, colour_main, colour_ext,
                   ref-lines, read-lines, monomer, monomer-period, monomer-cut,
-                  monomer-style, monomer-consensus, annot-style, dpi,
-                  satdiv-panel-mm, satdiv-cmap, satdiv-dpi
+                  monomer-style, monomer-consensus, annot-style, dpi, satdiv,
+                  satdiv-panel-mm, satdiv-cmap, satdiv-vmax, satdiv-step
                   (blank means "use the default"; '-' spellings also accepted with '_')
 
-`suffix` is the output file stem: a row writes <outdir>/<suffix>.quad.png and .pdf.
+`suffix` is the output file stem: a row writes <outdir>/<suffix>.quad.png and .pdf,
+plus <suffix>.satdiv.png/.pdf when the `satdiv` column is on.
 """
 
 import argparse
@@ -20,6 +21,7 @@ import os
 import sys
 from collections import OrderedDict
 
+from . import satdiv as satdiv_mod
 from . import tree as tree_mod
 from .annotate import Lines
 from .cli import read_consensus
@@ -30,7 +32,8 @@ REQUIRED = ("bam", "readid", "reference", "outdir", "suffix")
 OPTIONAL = ("k", "min-seg", "merge-gap", "panel-mm", "colour_main", "colour_ext",
             "ref-lines", "read-lines", "monomer", "monomer-period", "monomer-cut",
             "monomer-style", "monomer-consensus", "tree-method",
-            "annot-style", "dpi", "satdiv-panel-mm", "satdiv-cmap", "satdiv-dpi")
+            "annot-style", "dpi", "satdiv", "satdiv-panel-mm", "satdiv-cmap",
+            "satdiv-vmax", "satdiv-step")
 FORMATS = ("png", "pdf")
 
 
@@ -107,12 +110,25 @@ def params_for(v):
         p.annot_style = v["annot-style"]
     if v["dpi"]:
         p.dpi = int(v["dpi"])
+    if v["satdiv"] and v["satdiv"].lower() not in ("0", "no", "false", "n"):
+        p.satdiv = True
+    if v["satdiv-panel-mm"]:
+        p.satdiv_panel_mm = float(v["satdiv-panel-mm"])
+    if v["satdiv-cmap"]:
+        p.satdiv_cmap = v["satdiv-cmap"]
+    if v["satdiv-vmax"]:
+        p.satdiv_vmax = float(v["satdiv-vmax"])
+    if v["satdiv-step"]:
+        p.satdiv_step = float(v["satdiv-step"])
     return p
 
 
 def outputs_for(v):
     stem = os.path.join(v["outdir"], v["suffix"])
-    return stem, [f"{stem}.quad.{f}" for f in FORMATS]
+    out = [f"{stem}.quad.{f}" for f in FORMATS]
+    if v.get("satdiv") and str(v["satdiv"]).lower() not in ("0", "no", "false", "n"):
+        out += [f"{stem}.satdiv.{f}" for f in FORMATS]
+    return stem, out
 
 
 def main(argv=None):
@@ -184,6 +200,9 @@ def main(argv=None):
                                       title=f"{ctx.read_id}\n"
                                             f"{st['monomer'].n_full} monomers, "
                                             f"{st['monomer'].n_groups} groups")
+                    if par.satdiv:
+                        satdiv_mod.draw(ctx, par, stem, lines=lines or None,
+                                        formats=FORMATS)
                     print(f"[{done}/{len(todo)}] {v['suffix']}  {ctx.window}  "
                           f"{st['n_fwd']:,} fwd / {st['n_rev']:,} rev  "
                           f"-> {os.path.basename(paths[0])}")

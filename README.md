@@ -12,10 +12,9 @@ pip install -e .
 readrefdot --bam sample.bam --ref genome.fa --read "m84227_.../85266687/ccs"
 ```
 
-The repo also carries **`satdivplot`**, which draws the pairwise divergence between the
-satellite monomers of the same read and reference window — the same tiling and grouping,
-shown as a heat map instead of a dot plot. See
-[satdivplot](#satdivplot--pairwise-monomer-divergence).
+`--satdiv` adds a second plot from the same data: the pairwise divergence between the
+satellite monomers, in the same quad layout. See
+[the divergence plot](#the-divergence-plot---satdiv).
 
 ## Input
 
@@ -41,7 +40,7 @@ including them would stretch the reference window for no gain.
 the PDF is vector regardless.
 Characters that cannot appear in a filename (`/` in particular) become `_`.
 With `--monomer`, also `<readid>.dendrogram.png` / `.dendrogram.pdf`.
-`satdivplot` writes `<readid>.satdiv.pdf` / `.satdiv.png` beside them.
+With `--satdiv`, also `<readid>.satdiv.png` / `.satdiv.pdf`.
 
 ## The plot
 
@@ -133,6 +132,12 @@ the line stops that far short of the panel edge.
 | `--tree-method` | dendrogram | `dendrogram` (the grouping tree) or `nj` (a separate neighbour-joining tree) |
 | `--no-tree` | off | skip the monomer dendrogram |
 | `--annot-style` | box | how `--ref-lines`/`--read-lines` are drawn: `box`, `lines` or `both` |
+| `--satdiv` | off | also draw the monomer divergence plot (below) |
+| `--satdiv-panel-mm` | `--panel-mm` | size of its plot box |
+| `--satdiv-cmap` | viridis | its colormap; sequential, dark = alike |
+| `--satdiv-vmax` | 20 | % divergence at the top of its scale; above it is black |
+| `--satdiv-step` | 1 | % divergence per colour band |
+| `--matrix-tsv` | off | with `--satdiv`, also write `<name>.satdiv.tsv` |
 | `--dpi` | 600 | resolution of the PNG; the PDF is vector either way |
 
 ## Monomer annotation (`--monomer`)
@@ -320,7 +325,7 @@ readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redr
 | `ref-lines`, `read-lines` | | annotation positions, comma-separated |
 | `monomer`, `monomer-period`, `monomer-cut`, `monomer-style`, `monomer-consensus` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.dendrogram.png`/`.pdf` |
 | `annot-style`, `dpi` | | how the annotated intervals are drawn, and the PNG resolution |
-| `satdiv-panel-mm`, `satdiv-cmap`, `satdiv-dpi` | | read by `satdivplot-batch` only (see above), ignored here |
+| `satdiv`, `satdiv-panel-mm`, `satdiv-cmap`, `satdiv-vmax`, `satdiv-step` | | the divergence plot; `satdiv` is on for anything but `0`/`no`/`false` |
 
 Column names accept either `-` or `_`. Blank cells mean "use the default".
 
@@ -334,14 +339,16 @@ from its BAM, say) is reported and the rest continue.
 Rows sharing a BAM and reference are grouped so the BAM is scanned once per group rather
 than once per row; the scan dominates runtime.
 
-## satdivplot — pairwise monomer divergence
+## The divergence plot (`--satdiv`)
 
-The dot plot shows **where** sequence recurs. `satdivplot` shows **how far apart** the
-copies are, and that is what makes higher-order repeat structure legible.
+The dot plot shows **where** sequence recurs. `--satdiv` shows **how far apart** the copies
+are, and that is what makes higher-order repeat structure legible. It is the same tool —
+the same tiling, the same grouping, the same annotated intervals, the same `Params` — with
+a second figure written beside the dot plot as `<stem>.satdiv.png` / `.pdf`.
 
 ```bash
-satdivplot --bam sample.bam --ref genome.fa --read "m84227_.../85266687/ccs"
-satdivplot-batch manifest.tsv --outdir out/satdiv    # the same manifest
+readrefdot --bam sample.bam --ref genome.fa --read "…/85266687/ccs" --satdiv
+readrefdot-batch manifest.tsv          # a `satdiv` column turns it on per row
 ```
 
 **The layout is the quad plot's**: `[reference | read]` on both axes, so one matrix fills
@@ -363,20 +370,29 @@ between the blocks.
 
 ### Boxed intervals
 
-`--ref-lines` / `--read-lines` are boxed here exactly as in the dot plot (see
-[Annotation](#annotation-optional)), in **black** at 0.3 pt: a square on the diagonal of
-each self quadrant, and the rectangle where a reference interval meets a read one in each
-cross quadrant. Box edges are interpolated inside the monomer they land in, so they sit on
-the base the annotation names rather than on the nearest monomer boundary. An interval
-outside the plotted window is dropped, exactly as `readrefdot` drops a guide line for it.
+`--ref-lines` / `--read-lines` are boxed here as they are in the dot plot (see
+[Annotation](#annotation-optional)) but in **white** at 0.3 pt, since the heat map is dark:
+a square on the diagonal of each self quadrant, plus the rectangle where a reference
+interval meets a read one in each cross quadrant. The line dividing the two blocks is white
+for the same reason. Box edges are interpolated inside the monomer they land in, so they
+sit on the base the annotation names rather than on the nearest monomer boundary. An
+interval outside the plotted window is dropped, exactly as the dot plot drops a guide line
+for it.
+
+**A read position with no segment to box gets a white dashed cross-hair instead.** A
+deletion is the case that matters: its read side is a junction, not a segment, so nothing
+in the divergence matrix says where in the read the sequence was lost — the monomers either
+side of it are simply neighbours. The dashed line is the only thing that puts it on the
+plot, and running it across the whole panel lets you carry the junction over to the
+reference block and read off what is missing.
 
 Six of the ten manifest rows are tandem duplications, and in every one the monomers inside
 the two read boxes are near-identical at the duplication's own offset (0.0–1.3% divergence
 against array medians of 3.4–8.4%).
 
-Output is `<stem>.satdiv.pdf` and `.png`; `--matrix-tsv` also writes `<stem>.satdiv.tsv`,
-the whole matrix with each monomer's block, position and group. The PNG is written at
-600 dpi (`--dpi`) and the PDF is vector, with the heat map embedded one sample per cell.
+`--matrix-tsv` also writes `<stem>.satdiv.tsv`, the whole matrix with each monomer's block,
+position and group. The PNG is written at 600 dpi (`--dpi`) and the PDF is vector, with the
+heat map embedded one sample per cell.
 
 ### What you are looking at
 
@@ -408,10 +424,11 @@ r = 0.94, and monomers the dendrogram puts in one group sit at 1.7% divergence a
 
 ### The colour scale
 
-**Sequential, stepped and fixed**: one band per 1% divergence (`--step`) from 0 to 20%
-(`--vmax`), from `viridis` by default (`--cmap`) — dark = alike, light = far apart. A pair
-further apart than `--vmax` is off the scale and drawn **black**, marked by the arrow on
-the colour bar.
+**Sequential, stepped and fixed**: one band per 1% divergence (`--satdiv-step`) from 0 to
+20% (`--satdiv-vmax`), from `viridis` by default (`--satdiv-cmap`) — dark = alike, light =
+far apart. A pair
+further apart than `--satdiv-vmax` is off the scale and drawn **black**, marked by the
+arrow on the colour bar.
 
 *Sequential, not diverging.* Divergence has a true zero and no meaningful midpoint, so a
 diverging map invents a centre and spends half its range on values the data never has —
@@ -427,12 +444,12 @@ dark end is purple rather than black, which keeps the black annotation boxes vis
 can be compared by eye and one wildly divergent monomer cannot stretch the range everything
 else is read on.
 
-*Choosing `--vmax`.* It has to clear the most divergent array you want on the same scale,
+*Choosing `--satdiv-vmax`.* It has to clear the most divergent array you want on the same scale,
 not the typical one. Across the ten manifest rows the medians run 3.4–8.4% and the largest
 single pair is 19.7%; the Ler centromeric arrays (`INS_35`, `INS_37`) are the divergent
 ones. Cutting the scale to fit the common case blacks those two out:
 
-| `--vmax` | pairs off scale, all ten | worst single plot |
+| `--satdiv-vmax` | pairs off scale, all ten | worst single plot |
 |---|---|---|
 | 12 | 3.31% | 19.5% (`INS_35`) |
 | 14 | 1.00% | 5.4% |
@@ -466,15 +483,16 @@ a dot plot is a **diagonal**. So by default (`--annot-style box`) each one is dr
 
 * the reference × reference quadrant gets a square on its diagonal for each reference
   interval, and the read × read quadrant one for each read interval — a tandem duplication
-  is two squares touching corner to corner;
-* each cross quadrant gets the rectangle where a reference interval meets a read one, which
-  is where the read's copy of the donor sits against the original. On `INS_93` the two
-  rectangles stacked in the top-left quadrant are the same 4 kb of reference matching two
-  different stretches of the read: the duplication, stated as a picture.
+  is two squares touching corner to corner.
+
+Only those two quadrants. A cross quadrant would take a rectangle per (reference, read)
+pair, and on an INS that is four more boxes saying what the two diagonal ones already say.
 
 Boxes are drawn in blue (`#0073b2`) at 0.3 pt. `--annot-style lines` restores the previous
-dotted blue guide lines at the interval ends, and `both` draws each. `satdivplot` boxes the
-same intervals the same way, in black.
+dotted blue guide lines at the interval ends, and `both` draws each. The
+[divergence plot](#the-divergence-plot---satdiv) boxes the same intervals in white, and
+does keep the cross quadrants — there a rectangle carries real information, since it holds
+the divergence between the donor and its copy.
 
 ## What a line means
 
@@ -497,11 +515,11 @@ for ctx in load("sample.bam", "genome.fa", ["m84227_.../85266687/ccs"]):
 diagonal runs out — no BAM, no plot.
 
 ```python
-from readrefdot import load, SatDivParams, satdiv_plot
+from readrefdot import load, Params, satdiv_plot
 
 for ctx in load("sample.bam", "genome.fa", ["m84227_.../85266687/ccs"]):
-    paths, st = satdiv_plot(ctx, SatDivParams(), "out/divergence")
-    st["matrices"]["read"]      # the n x n % divergence matrix
+    paths, st = satdiv_plot(ctx, Params(), "out/divergence")
+    st["matrix"]                # the n x n % divergence matrix, reference then read
 ```
 
 ## contrib

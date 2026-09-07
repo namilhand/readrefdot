@@ -30,7 +30,7 @@ MM = 1 / 25.4
 PANEL_MM = 45.0                 # default plot box, excluding title and labels
 TICK_STEP = 5000
 STRIP_BLOCK_MM = 1.5            # thickness of the monomer strip, block style
-STRIP_GAP_MM = 0.4              # gap between the panel and its strip
+STRIP_GAP_MM = 0.0              # the sticks start at the edge of the panel
 DOT_MIN, DOT_MAX = 0.7, 3.0     # pt: monomer marker diameter, auto-sized to the spacing
 STEM_MM = 0.66                  # length of a lollipop stick; the circle sits on its end
 
@@ -77,6 +77,11 @@ class Params:
     monomer_consensus: str = mono.CEN178    # phase reference; None = take it from the data
     annot_style: str = "box"    # "box", "lines" or "both": how --ref/read-lines are drawn
     dpi: int = DPI              # raster resolution; the PDF stays vector either way
+    satdiv: bool = False        # also draw the monomer divergence plot (satdiv.draw)
+    satdiv_panel_mm: float = None   # its plot box; None = the same as this one
+    satdiv_cmap: str = "viridis"    # sequential: dark = alike, light = far apart
+    satdiv_vmax: float = 20.0       # % divergence at the top of the scale
+    satdiv_step: float = 1.0        # % divergence per colour band
 
     @property
     def gap(self):
@@ -268,9 +273,8 @@ def _strips(fig, geom, R, n, track, style, panel_mm):
 
     for a in (top, right):
         a.set_xticks([]); a.set_yticks([])
-        for name, sp in a.spines.items():
-            keep = style == "block" or name in (("bottom",) if a is top else ("left",))
-            sp.set_visible(keep)
+        for sp in a.spines.values():        # the panel's own frame is the strip's base
+            sp.set_visible(style == "block")
             sp.set_linewidth(0.25); sp.set_color("black")
     return top
 
@@ -280,16 +284,16 @@ def _annotation_boxes(ax, ctx, lines):
 
     An annotated interval -- the donor region, the inserted segment, the deleted block --
     is a stretch of sequence, and what it produces in a dot plot is a diagonal. The box is
-    what that diagonal is FOR. Each self-comparison quadrant gets a square on its own
-    diagonal, and each cross quadrant gets the rectangle where a reference interval meets
-    a read one, which is where the read's copy of the donor sits against the original.
+    what that diagonal is FOR.
+
+    Only the two self-comparison quadrants are boxed: reference x reference and read x
+    read, each on its own diagonal. The cross quadrants would take a rectangle per
+    (reference, read) interval pair, and on an INS that is four more boxes saying what the
+    two diagonal ones already say.
 
     Returns the number drawn."""
     ref, read = lines.intervals(ctx)
     rects = [(a, b, a, b) for a, b in ref] + [(a, b, a, b) for a, b in read]
-    for a, b in ref:                                   # the two cross quadrants
-        for c, d in read:
-            rects += [(a, b, c, d), (c, d, a, b)]
     for x0, x1, y0, y1 in rects:
         ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
                                edgecolor=COL_BOX, linewidth=BOX_LW, zorder=6))
