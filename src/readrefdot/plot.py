@@ -28,10 +28,10 @@ from .kmer import (build_index, filter_min_length, kmer_codes, match,
 MM = 1 / 25.4
 PANEL_MM = 45.0                 # default plot box, excluding title and labels
 TICK_STEP = 5000
-STRIP_MM = {"lollipop": 2.4, "block": 1.5}   # thickness of the monomer strip, by style
+STRIP_BLOCK_MM = 1.5            # thickness of the monomer strip, block style
 STRIP_GAP_MM = 0.4              # gap between the panel and its strip
 DOT_MIN, DOT_MAX = 0.7, 3.0     # pt: monomer marker diameter, auto-sized to the spacing
-STEM_FRAC = 0.55                # of the strip: how far the stick reaches before the dot
+STEM_MM = 0.66                  # length of a lollipop stick; the circle sits on its end
 
 COL_MAIN = "#000000"            # diagonals the aligner placed the read on
 COL_EXT = "#B2B2B2"             # grey70 - every other diagonal
@@ -216,15 +216,16 @@ def _dot_size(panel_mm, n_units):
     return float(np.clip(panel_mm / max(n_units, 1) * 0.9 * 72 / 25.4, DOT_MIN, DOT_MAX))
 
 
-def _lollipops(ax, centres, cols, dot, vertical):
-    """A stick from the panel edge out to a coloured circle, one per monomer."""
-    base, tip = 0.0, STEM_FRAC
+def _lollipops(ax, centres, cols, dot, vertical, tip):
+    """A stick from the panel edge out to a coloured circle centred on the stick's end.
+
+    `tip` is the stick's length as a fraction of the strip."""
     if vertical:                                    # the strip along the top
-        segs = [[(c, base), (c, tip)] for c in centres]
-        pts = (centres, np.full(centres.size, (tip + 1.0) / 2))
+        segs = [[(c, 0.0), (c, tip)] for c in centres]
+        pts = (centres, np.full(centres.size, tip))
     else:                                           # the strip along the right
-        segs = [[(base, c), (tip, c)] for c in centres]
-        pts = (np.full(centres.size, (tip + 1.0) / 2), centres)
+        segs = [[(0.0, c), (tip, c)] for c in centres]
+        pts = (np.full(centres.size, tip), centres)
     ax.add_collection(LineCollection(segs, colors=cols, linewidths=0.2, zorder=1))
     ax.scatter(pts[0], pts[1], s=dot ** 2, c=cols, linewidths=0, zorder=2)
 
@@ -241,6 +242,7 @@ def _strips(fig, geom, R, n, track, style, panel_mm):
     centres = starts + widths / 2
     cols = track.colours()
     dot = _dot_size(panel_mm, len(track.units))
+    stem = STEM_MM * MM / strip                     # stick length, as a strip fraction
 
     top = fig.add_axes([ml / fw, (mb + box + gap) / fh, box / fw, strip / fh])
     right = fig.add_axes([(ml + box + gap) / fw, mb / fh, strip / fw, box / fh])
@@ -250,12 +252,12 @@ def _strips(fig, geom, R, n, track, style, panel_mm):
         right.barh(centres, width=1.0, height=widths, color=cols, linewidth=0,
                    align="center")
     else:
-        _lollipops(top, centres, cols, dot, vertical=True)
-        _lollipops(right, centres, cols, dot, vertical=False)
+        _lollipops(top, centres, cols, dot, True, stem)
+        _lollipops(right, centres, cols, dot, False, stem)
     top.set_xlim(0, n); top.set_ylim(0, 1)
     right.set_xlim(0, 1); right.set_ylim(0, n)
-    top.axvline(R, color="black", lw=0.5, ymax=1.0 if style == "block" else STEM_FRAC)
-    right.axhline(R, color="black", lw=0.5, xmax=1.0 if style == "block" else STEM_FRAC)
+    top.axvline(R, color="black", lw=0.5, ymax=1.0 if style == "block" else stem)
+    right.axhline(R, color="black", lw=0.5, xmax=1.0 if style == "block" else stem)
 
     for a in (top, right):
         a.set_xticks([]); a.set_yticks([])
@@ -277,8 +279,13 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
 
     mpl.rcParams.update(STYLE)
     box = params.panel_mm * MM
-    style = params.monomer_style if params.monomer_style in STRIP_MM else "lollipop"
-    strip, gap = STRIP_MM[style] * MM, STRIP_GAP_MM * MM
+    style = params.monomer_style if params.monomer_style == "block" else "lollipop"
+    gap = STRIP_GAP_MM * MM
+    if style == "block" or track is None:
+        strip = STRIP_BLOCK_MM * MM
+    else:   # exactly what the marks need: the stick, plus the circle sitting on its end
+        strip = (STEM_MM * MM + _dot_size(params.panel_mm, len(track.units)) / 72 / 2
+                 + 0.05 * MM)
     if track is None:
         ml, mr, mb, mt = 0.46, 0.08, 0.46, 0.44    # inches of margin, room for ticks
     else:                                          # no tick labels, but strips instead

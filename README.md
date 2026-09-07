@@ -162,8 +162,10 @@ in the sequences themselves, in three steps:
    abundant variant is always the first palette colour. Partial units at the array edges
    are left grey.
 
-Each unit is drawn as a **lollipop** — a stick from the panel edge out to a circle
-coloured by group. The circle is auto-sized to the space one unit actually gets: a 45 mm
+Each unit is drawn as a **lollipop** — a short stick from the panel edge with a circle
+centred on its end, coloured by group. The strip is only as thick as those marks need,
+so the annotation sits tight against the panel. The circle is auto-sized to the space
+one unit actually gets: a 45 mm
 panel over ~220 monomers leaves each 0.2 mm, so at that density the circles sit side by
 side and the strip reads as a coloured line on a comb rather than as separate dots.
 `--monomer-style block` draws a solid block per unit instead, which is denser to read at
