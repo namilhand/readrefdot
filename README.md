@@ -373,6 +373,14 @@ nothing, since the deletion is a junction and not a segment. Box edges are inter
 inside the monomer they land in, so they sit on the base the annotation names rather than
 on the nearest monomer boundary.
 
+The columns hold a sorted list of **distinct** endpoints, so how they pair depends on the
+count: four values are two separate intervals, but a tandem duplication — the insertion
+sitting immediately beside its donor — shares an endpoint and arrives as **three**, which
+have to be read as a chain. Six of the ten manifest rows are that case, and in every one
+of them the monomers inside the two boxes are near-identical at the duplication's own
+offset (0.0–1.3% divergence against array medians of 3.9–8.4%). An interval that falls
+outside the plotted window is dropped, exactly as `readrefdot` drops a guide line for it.
+
 Output is `<stem>.satdiv.pdf` and `.png`; `--matrix-tsv` also writes
 `<stem>.satdiv.ref.tsv` and `.read.tsv`, the matrices themselves with each monomer's
 position and group. The PNG is written at 600 dpi (`--dpi`) — 25 mm holding 120 cells is
