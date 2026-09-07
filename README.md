@@ -12,6 +12,11 @@ pip install -e .
 readrefdot --bam sample.bam --ref genome.fa --read "m84227_.../85266687/ccs"
 ```
 
+The repo also carries **`satdivplot`**, which draws the pairwise divergence between the
+satellite monomers of the same read and reference window — the same tiling and grouping,
+shown as a heat map instead of a dot plot. See
+[satdivplot](#satdivplot--pairwise-monomer-divergence).
+
 ## Input
 
 | | |
@@ -35,6 +40,7 @@ including them would stretch the reference window for no gain.
 `<outdir>/<readid>.quad.png` and `.quad.pdf`, at 300 dpi with fonts embedded.
 Characters that cannot appear in a filename (`/` in particular) become `_`.
 With `--monomer`, also `<readid>.dendrogram.png` / `.dendrogram.pdf`.
+`satdivplot` writes `<readid>.satdiv.pdf` / `.satdiv.png` beside them.
 
 ## The plot
 
@@ -310,6 +316,7 @@ readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redr
 | `colour_main`, `colour_ext` | | per-row colours |
 | `ref-lines`, `read-lines` | | annotation positions, comma-separated |
 | `monomer`, `monomer-period`, `monomer-cut`, `monomer-style`, `monomer-consensus` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.dendrogram.png`/`.pdf` |
+| `satdiv-panel-mm`, `satdiv-cmap` | | read by `satdivplot-batch` only (see below), ignored here |
 
 Column names accept either `-` or `_`. Blank cells mean "use the default".
 
@@ -322,6 +329,71 @@ from its BAM, say) is reported and the rest continue.
 
 Rows sharing a BAM and reference are grouped so the BAM is scanned once per group rather
 than once per row; the scan dominates runtime.
+
+## satdivplot — pairwise monomer divergence
+
+The dot plot shows **where** sequence recurs. `satdivplot` shows **how far apart** the
+copies are, and that is what makes higher-order repeat structure legible.
+
+```bash
+satdivplot --bam sample.bam --ref genome.fa --read "m84227_.../85266687/ccs"
+satdivplot-batch manifest.tsv --outdir out/satdiv    # the same manifest
+```
+
+One page, two panels: the **reference window on the left, the read on the right**, each a
+25 mm square by default (`--panel-mm`). Each panel is a self-comparison — the block is cut
+into CEN178 monomers by exactly the tiling `--monomer` uses, every monomer is compared
+with every other, and the n × n matrix of percent divergence is drawn as a heat map with
+the monomers in array order on both axes. The coloured strips along the top and the right
+are the same similarity groups the dot plot annotates, from the same dendrogram: both
+blocks are tiled and grouped **together**, so a colour means the same monomer family in
+the reference panel and in the read panel.
+
+Output is `<stem>.satdiv.pdf` and `.png`; `--matrix-tsv` also writes
+`<stem>.satdiv.ref.tsv` and `.read.tsv`, the matrices themselves with each monomer's
+position and group.
+
+### What you are looking at
+
+In an array built from a repeating cassette of *m* monomers, monomer *i* and monomer
+*i + m* are near-identical while their neighbours are not. That puts a line of
+low-divergence cells **parallel to the diagonal, m cells off it**, and repeats it at every
+multiple of *m* — the ladder of blue lines is the HOR period, read straight off the axis.
+A monomer that has drifted from the rest of the array shows as a red cross: one whole row
+and its matching column. A block of blue cells off the diagonal is a segment of the array
+duplicated elsewhere in it.
+
+### How divergence is measured
+
+Every monomer is aligned to the consensus and **projected onto the consensus's 178
+columns**: each column holds the base that monomer has there, or a gap where it has lost
+the position; bases it has *inserted* are dropped, since they have no consensus column to
+sit in. Two monomers are then compared column by column — divergence is the fraction of
+columns where they differ, counting a lost position against the pair and ignoring only
+columns both have lost.
+
+Comparing in consensus columns is the point: an indel inside one monomer moves nothing
+downstream, so a 180 bp monomer carrying a 2 bp insertion scores like its neighbours
+(mean row divergence 5.04% against 5.15% for the 178 bp units on the Chr4 read) instead of
+appearing as a spuriously divergent row. It also means the numbers here are true
+alignment divergence, not the 8-mer Jaccard estimate the grouping uses — the two agree at
+r = 0.94, and monomers the dendrogram puts in one group sit at 1.7% divergence against
+5.9% between groups.
+
+### The colour scale
+
+`--cmap` (default `RdYlBu_r`) is **diverging and centred on the median divergence of the
+array**, not on the middle of the range: the pale centre means "as different as two
+monomers of this array typically are", blue is closer kin than that, red more distant. The
+ends are the 2nd and 98th percentiles, mirrored about the centre. An array whose monomers
+all sit near 5% and one that spans 1–9% therefore read the same way, so a repeating
+pattern of blue cells is HOR structure rather than the array's overall age. Both panels
+share one scale, so the read can be read against its reference. `--vmin`, `--vmax` and
+`--center` override it.
+
+Only whole satellite monomers are compared. A partial unit at the edge of the window is a
+fragment of a monomer, and a non-satellite stretch is not a monomer at all; either would
+be a spurious row, so both are left out of the matrix (and counted in the title).
 
 ## Annotation (optional)
 
@@ -353,6 +425,14 @@ for ctx in load("sample.bam", "genome.fa", ["m84227_.../85266687/ccs"]):
 
 `readrefdot.kmer.compare(query, target, k)` is the engine on its own: two strings in,
 diagonal runs out — no BAM, no plot.
+
+```python
+from readrefdot import load, SatDivParams, satdiv_plot
+
+for ctx in load("sample.bam", "genome.fa", ["m84227_.../85266687/ccs"]):
+    paths, st = satdiv_plot(ctx, SatDivParams(), "out/divergence")
+    st["matrices"]["read"]      # the n x n % divergence matrix
+```
 
 ## contrib
 

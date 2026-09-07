@@ -202,19 +202,15 @@ def _boundary_votes(anchors, period):
     return pos, seg_end - brk
 
 
-def align_consensus(window, cons, match=2, mismatch=-3, gap=-5):
-    """Place the WHOLE consensus inside `window`, gaps at the window's ends free.
+def semiglobal_dp(window, cons, match=2, mismatch=-3, gap=-5):
+    """The scoring matrix for aligning the whole of `cons` inside `window`.
 
-    Semi-global Needleman-Wunsch. The rows are vectorised, including the horizontal gap
-    term: with a linear gap penalty H[i][j] = max(M[j], H[i][j-1] + g) is a running
-    maximum of M[j] - g*j, so a row costs a handful of numpy calls rather than a Python
-    loop over its cells.
+    Rows are vectorised, including the horizontal gap term: with a linear gap penalty
+    H[i][j] = max(M[j], H[i][j-1] + g) is a running maximum of M[j] - g*j, so a row costs
+    a handful of numpy calls rather than a Python loop over its cells.
 
-    The gap must cost more than a mismatch or the alignment invents 1 bp indels to
-    explain ordinary substitutions: at match/mismatch/gap = 1/-1/-1 a fifth of the units
-    came out 177 bp long, and at 2/-3/-5 the same units are 178 bp at identical identity.
-
-    Returns (start, end, identity) as offsets into `window`, or None."""
+    Returns (W, C, H) as uint8 sequences and the (m+1, n+1) matrix, or None if the window
+    is too short to hold the consensus."""
     m, n = len(cons), len(window)
     if n < m // 2:
         return None
@@ -229,7 +225,24 @@ def align_consensus(window, cons, match=2, mismatch=-3, gap=-5):
         row[0] = H[i, 0]
         row[1:] = np.maximum(H[i - 1, :-1] + sc, H[i - 1, 1:] + gap)
         H[i] = np.maximum.accumulate(row - gap * j) + gap * j
+    return W, C, H
 
+
+def align_consensus(window, cons, match=2, mismatch=-3, gap=-5):
+    """Place the WHOLE consensus inside `window`, gaps at the window's ends free.
+
+    Semi-global Needleman-Wunsch over `semiglobal_dp`'s matrix, then a traceback.
+
+    The gap must cost more than a mismatch or the alignment invents 1 bp indels to
+    explain ordinary substitutions: at match/mismatch/gap = 1/-1/-1 a fifth of the units
+    came out 177 bp long, and at 2/-3/-5 the same units are 178 bp at identical identity.
+
+    Returns (start, end, identity) as offsets into `window`, or None."""
+    got = semiglobal_dp(window, cons, match, mismatch, gap)
+    if got is None:
+        return None
+    W, C, H = got
+    m = len(cons)
     jj = int(np.argmax(H[m]))
     i, k, matches = m, jj, 0
     while i > 0:

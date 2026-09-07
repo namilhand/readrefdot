@@ -7,7 +7,7 @@ skipped, making the wrapper safe to re-run after adding rows or after a failure.
 Required columns  bam, readid, reference, outdir, suffix
 Optional columns  k, min-seg, merge-gap, panel-mm, colour_main, colour_ext,
                   ref-lines, read-lines, monomer, monomer-period, monomer-cut,
-                  monomer-style, monomer-consensus
+                  monomer-style, monomer-consensus, satdiv-panel-mm, satdiv-cmap
                   (blank means "use the default"; '-' spellings also accepted with '_')
 
 `suffix` is the output file stem: a row writes <outdir>/<suffix>.quad.png and .pdf.
@@ -28,7 +28,8 @@ from .read import ReadNotFound, load
 REQUIRED = ("bam", "readid", "reference", "outdir", "suffix")
 OPTIONAL = ("k", "min-seg", "merge-gap", "panel-mm", "colour_main", "colour_ext",
             "ref-lines", "read-lines", "monomer", "monomer-period", "monomer-cut",
-            "monomer-style", "monomer-consensus", "tree-method")
+            "monomer-style", "monomer-consensus", "tree-method",
+            "satdiv-panel-mm", "satdiv-cmap")
 FORMATS = ("png", "pdf")
 
 

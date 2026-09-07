@@ -15,6 +15,8 @@ keywords = ["dotplot", "long-read", "HiFi", "genomics", "satellite", "repeat"]
 [project.scripts]
 readrefdot = "readrefdot.cli:main"
 readrefdot-batch = "readrefdot.batch:main"
+satdivplot = "readrefdot.satdiv_cli:main"
+satdivplot-batch = "readrefdot.satdiv_cli:batch_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

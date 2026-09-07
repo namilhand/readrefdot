@@ -1,0 +1,256 @@
+"""satdivplot - pairwise divergence between the satellite monomers of one sequence.
+
+The quad dot plot shows where sequence recurs; this shows how far apart the copies are.
+Each panel is a self-comparison: the array is cut into CEN178 monomers (the same tiling
+and the same grouping readrefdot uses), every monomer is compared with every other, and
+the resulting n x n matrix of percent divergence is drawn as a heat map, monomers in
+array order on both axes.
+
+Higher-order repeat structure is what this makes visible. In an array built of a
+repeating cassette of m monomers, monomer i and monomer i+m are near-identical while
+their neighbours are not, so the matrix carries a chequer of low-divergence cells at
+multiples of the HOR period -- off-diagonals the dot plot only hints at.
+
+One page holds two panels: the reference window on the left, the read on the right. Both
+are tiled and grouped together, so a colour on the top/right strips means the same
+monomer family in both.
+
+Divergence is measured in CONSENSUS COLUMNS. Each monomer is aligned to the consensus
+and projected onto its 178 columns, so an indel inside one monomer shifts nothing
+downstream and two monomers are always compared base-for-corresponding-base.
+"""
+
+from dataclasses import dataclass
+
+import numpy as np
+import matplotlib as mpl
+mpl.use("Agg")
+import matplotlib.pyplot as plt
+
+from . import monomer as mono
+from .plot import MM, STYLE
+
+PANEL_MM = 25.0            # default heat map box, per block
+STRIP_MM = 1.2             # thickness of the monomer colour strip
+GAP_MM = 0.4               # panel to strip
+INTER_MM = 5.0             # between the reference group and the read group
+CB_GAP_MM = 3.5            # strip to colour bar
+CB_W_MM = 1.6
+CHUNK = 64                 # rows of the matrix computed at once
+CMAP = "RdYlBu_r"          # diverging: blue = alike, red = far apart
+LO_PCT, HI_PCT = 2.0, 98.0  # percentiles of the off-diagonal that set the colour range
+COL_LAB = "#444444"
+
+
+@dataclass
+class Params:
+    panel_mm: float = PANEL_MM
+    cmap: str = CMAP
+    vmin: float = None         # % divergence at the blue end
+    vmax: float = None         # % divergence at the red end
+    center: float = None       # % divergence the map is neutral at (default: the median)
+    monomer_period: int = None
+    monomer_cut: float = mono.DEFAULT_CUT
+    monomer_consensus: str = mono.CEN178
+
+
+def project(unit, cons, match=2, mismatch=-3, gap=-5):
+    """One monomer written out in the consensus's own columns.
+
+    Returns a uint8 array of len(cons): the unit base aligned to each consensus position,
+    or 0 where the unit has lost that position. Bases the unit has inserted are dropped --
+    they have no consensus column to sit in, and keeping them would push every later
+    position of that one monomer out of register with all the others."""
+    got = mono.semiglobal_dp(unit, cons, match, mismatch, gap)
+    if got is None:
+        return None
+    W, C, H = got
+    m = len(cons)
+    proj = np.zeros(m, dtype=np.uint8)
+    i, k = m, int(np.argmax(H[m]))
+    while i > 0:
+        if k > 0 and H[i, k] == H[i - 1, k - 1] + (match if W[k - 1] == C[i - 1]
+                                                   else mismatch):
+            proj[i - 1] = W[k - 1]
+            i -= 1
+            k -= 1
+        elif H[i, k] == H[i - 1, k] + gap:
+            i -= 1                          # consensus position absent from this monomer
+        else:
+            k -= 1                          # inserted base: no column for it
+    return proj
+
+
+def divergence(P):
+    """Percent divergence between every pair of projected monomers.
+
+    A column counts against the pair when the two differ, including one having lost the
+    position and the other not; columns both have lost are not counted either way."""
+    n, m = P.shape
+    D = np.zeros((n, n), dtype=float)
+    if n == 0:
+        return D
+    isgap = P == 0
+    for i0 in range(0, n, CHUNK):
+        blk, gb = P[i0:i0 + CHUNK], isgap[i0:i0 + CHUNK]
+        both = gb[:, None, :] & isgap[None, :, :]
+        diff = ((blk[:, None, :] != P[None, :, :]) & ~both).sum(-1)
+        den = m - both.sum(-1)
+        D[i0:i0 + CHUNK] = np.where(den > 0, diff / np.maximum(den, 1), 0.0)
+    np.fill_diagonal(D, 0.0)
+    return D * 100.0
+
+
+def _colour(u):
+    if not u.satellite:
+        return mono.NONSAT
+    if u.group < 0 or u.group >= len(mono.PALETTE):
+        return mono.UNSET
+    return mono.PALETTE[u.group]
+
+
+def block_matrix(S, track, block, cons):
+    """(units, colours, divergence matrix) for one block, in array order.
+
+    Only whole satellite monomers are compared -- the same ones the grouping used. A
+    partial unit at the edge of the window is a fragment of a monomer, and a
+    non-satellite stretch is not a monomer at all; either would be a spurious row."""
+    units = [u for u in track.units
+             if u.block == block and not u.partial and u.satellite]
+    P = []
+    keep = []
+    for u in units:
+        p = project(S[u.start:u.end], cons)
+        if p is not None:
+            P.append(p)
+            keep.append(u)
+    if not P:
+        return keep, [], np.zeros((0, 0))
+    return keep, [_colour(u) for u in keep], divergence(np.array(P, dtype=np.uint8))
+
+
+def _limits(mats, p):
+    """One colour range for both panels, so the two are directly comparable.
+
+    The scale is diverging and is centred on the MEDIAN divergence of the array, not on
+    the middle of the range: the neutral colour then means "as different as two monomers
+    of this array typically are", blue means closer kin than that and red more distant.
+    An array whose monomers all sit near 5% and one that spans 1-9% therefore read the
+    same way, which is what makes a repeating pattern of blue cells legible as HOR
+    structure rather than as the array's overall age."""
+    parts = [m[~np.eye(m.shape[0], dtype=bool)].ravel() for m in mats if m.size]
+    if not parts:
+        return 0.0, 1.0
+    off = np.concatenate(parts)
+    mid = float(p.center) if p.center is not None else float(np.median(off))
+    lo = float(p.vmin) if p.vmin is not None else float(np.percentile(off, LO_PCT))
+    hi = float(p.vmax) if p.vmax is not None else float(np.percentile(off, HI_PCT))
+    if p.vmin is None and p.vmax is None:      # symmetric about the centre, but never
+        r = max(mid - lo, hi - mid)            # reaching below zero divergence
+        lo = max(0.0, mid - r)
+        hi = mid + (mid - lo)
+    return (lo, hi) if hi > lo else (lo, lo + 1.0)
+
+
+def _panel(fig, geom, D, cols, cmap, lo, hi, label):
+    """One heat map with its monomer strips along the top and the right."""
+    x0, y0, box, gap, strip, fw, fh = geom
+    n = D.shape[0]
+    ax = fig.add_axes([x0 / fw, y0 / fh, box / fw, box / fh])
+    im = ax.imshow(D, cmap=cmap, vmin=lo, vmax=hi, extent=(0, n, n, 0),
+                   interpolation="nearest", aspect="auto")
+    ax.set_xticks([]); ax.set_yticks([])
+    for sp in ax.spines.values():
+        sp.set_linewidth(0.5); sp.set_color("black")
+
+    centres = np.arange(n) + 0.5
+    top = fig.add_axes([x0 / fw, (y0 + box + gap) / fh, box / fw, strip / fh])
+    right = fig.add_axes([(x0 + box + gap) / fw, y0 / fh, strip / fw, box / fh])
+    top.bar(centres, height=1.0, width=1.0, color=cols, linewidth=0, align="center")
+    right.barh(centres, width=1.0, height=1.0, color=cols, linewidth=0, align="center")
+    top.set_xlim(0, n); top.set_ylim(0, 1)
+    right.set_xlim(0, 1); right.set_ylim(n, 0)      # matches the heat map's y direction
+    for a in (top, right):
+        a.set_xticks([]); a.set_yticks([])
+        for sp in a.spines.values():
+            sp.set_linewidth(0.25); sp.set_color("black")
+
+    ax.annotate(label, xy=(0.5, 0), xycoords="axes fraction", xytext=(0, -5),
+                textcoords="offset points", ha="center", va="top", fontsize=5.5,
+                color=COL_LAB)
+    return ax, im
+
+
+def draw(ctx, params, out_stem, formats=("pdf", "png")):
+    """Draw the two-panel divergence figure. Returns (paths, stats)."""
+    S = ctx.ref_seq + ctx.read_seq
+    track = mono.annotate(ctx, period=params.monomer_period, cut=params.monomer_cut,
+                          consensus=params.monomer_consensus)
+    if track is None:
+        raise ValueError("not a tandem satellite array: no monomers to compare")
+    cons = params.monomer_consensus or S[track.units[0].start:track.units[0].end]
+    if params.monomer_consensus:
+        # annotate() may have phased the array on the reverse strand; project onto the
+        # same orientation it tiled with, or every unit would align back to front.
+        cons = (mono.revcomp(params.monomer_consensus) if "reverse" in track.phase
+                else params.monomer_consensus)
+
+    panels = [(name, *block_matrix(S, track, name, cons)) for name in ("ref", "read")]
+    lo, hi = _limits([p[3] for p in panels], params)
+
+    mpl.rcParams.update(STYLE)
+    box = params.panel_mm * MM
+    strip, gap, inter = STRIP_MM * MM, GAP_MM * MM, INTER_MM * MM
+    cb_gap, cb_w = CB_GAP_MM * MM, CB_W_MM * MM
+    ml, mb, mt, mr = 0.10, 0.16, 0.50, 0.34
+    group = box + gap + strip
+    fw = ml + 2 * group + inter + cb_gap + cb_w + mr
+    fh = mb + group + mt
+    fig = plt.figure(figsize=(fw, fh))
+
+    labels = {"ref": f"reference  {ctx.chrom}", "read": "read"}
+    im = None
+    for i, (name, units, cols, D) in enumerate(panels):
+        x0 = ml + i * (group + inter)
+        _, im = _panel(fig, (x0, mb, box, gap, strip, fw, fh), D, cols, params.cmap,
+                       lo, hi, f"{labels[name]}  ({D.shape[0]} monomers)")
+
+    cax = fig.add_axes([(ml + 2 * group + inter + cb_gap) / fw, mb / fh, cb_w / fw,
+                        box / fh])
+    cb = fig.colorbar(im, cax=cax)
+    cb.outline.set_linewidth(0.4)
+    cax.tick_params(width=0.4, length=1.6, labelsize=4.5, pad=1.2)
+    cax.set_ylabel("monomer-pair divergence (%)", fontsize=5, color=COL_LAB, labelpad=2)
+
+    n_ref, n_read = panels[0][3].shape[0], panels[1][3].shape[0]
+    title = (f"{ctx.read_id}\n{ctx.window}  (strand {ctx.strand})\n"
+             f"{n_ref} + {n_read} monomers of {track.period} bp, "
+             f"{track.n_groups} groups at {int(params.monomer_cut * 100)}% identity"
+             f"\nphase: {track.phase}"
+             + (f"  ·  {track.n_nonsatellite} non-satellite" if track.n_nonsatellite
+                else ""))
+    fig.text(ml / fw, 1 - 0.012, title, ha="left", va="top", fontsize=5,
+             linespacing=1.6)
+
+    paths = []
+    for fmt in formats:
+        path = f"{out_stem}.satdiv.{fmt}"
+        fig.savefig(path, format=fmt)
+        paths.append(path)
+    plt.close(fig)
+    return paths, dict(n_ref=n_ref, n_read=n_read, vmin=lo, vmax=hi, monomer=track,
+                       matrices={n: D for n, _, _, D in panels})
+
+
+def write_tsv(ctx, track, name, units, D, path):
+    """The matrix itself: one row per monomer, one column per monomer."""
+    with open(path, "w") as fh:
+        head = "\t".join(f"{i + 1}" for i in range(len(units)))
+        fh.write(f"block\tindex\tstart\tend\tgroup\t{head}\n")
+        R = len(ctx.ref_seq)
+        for i, u in enumerate(units):
+            b = u.start if name == "ref" else u.start - R
+            vals = "\t".join(f"{v:.3f}" for v in D[i])
+            fh.write(f"{name}\t{i + 1}\t{b}\t{b + u.length}\t"
+                     f"{u.group if u.group >= 0 else '.'}\t{vals}\n")
+    return path
