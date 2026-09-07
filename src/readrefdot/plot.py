@@ -286,10 +286,9 @@ def _annotation(ax, ctx, lines):
     is a stretch of sequence, and what it produces in a dot plot is a diagonal. The box is
     what that diagonal is FOR.
 
-    Only the two self-comparison quadrants are boxed: reference x reference and read x
-    read, each on its own diagonal. The cross quadrants would take a rectangle per
-    (reference, read) interval pair, and on an INS that is four more boxes saying what the
-    two diagonal ones already say.
+    Each self-comparison quadrant gets a square on its own diagonal, and each cross
+    quadrant the rectangle where a reference interval meets a read one -- which is where
+    the read's copy of the donor sits against the original.
 
     A read position with no segment to box gets a dotted cross-hair instead. A deletion is
     the case that matters: its read side is a junction, not a segment, so the reference
@@ -302,6 +301,9 @@ def _annotation(ax, ctx, lines):
     R, Q = len(ctx.ref_seq), len(ctx.read_seq)
     ref, read = lines.intervals(ctx)
     rects = [(a, b, a, b) for a, b in ref] + [(a, b, a, b) for a, b in read]
+    for a, b in ref:                                   # the two cross quadrants
+        for c, d in read:
+            rects += [(a, b, c, d), (c, d, a, b)]
     for x0, x1, y0, y1 in rects:
         ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
                                edgecolor=COL_BOX, linewidth=BOX_LW, zorder=6))

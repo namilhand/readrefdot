@@ -483,10 +483,11 @@ a dot plot is a **diagonal**. So by default (`--annot-style box`) each one is dr
 
 * the reference × reference quadrant gets a square on its diagonal for each reference
   interval, and the read × read quadrant one for each read interval — a tandem duplication
-  is two squares touching corner to corner.
-
-Only those two quadrants. A cross quadrant would take a rectangle per (reference, read)
-pair, and on an INS that is four more boxes saying what the two diagonal ones already say.
+  is two squares touching corner to corner;
+* each cross quadrant gets the rectangle where a reference interval meets a read one, which
+  is where the read's copy of the donor sits against the original. On `INS_93` the two
+  rectangles stacked in the top-left quadrant are the same 4 kb of reference matching two
+  different stretches of the read: the duplication, stated as a picture.
 
 **A read position with no segment to box gets a dotted cross-hair instead.** A deletion is
 the case that matters: its read side is a junction, not a segment, so the reference block
@@ -497,10 +498,8 @@ missing there. On the ten manifest rows the two DEL rows get one cross-hair each
 eight INS rows get none, their read positions all being box edges already.
 
 Boxes are drawn in blue (`#0073b2`) at 0.3 pt. `--annot-style lines` restores the previous
-dotted blue guide lines at the interval ends, and `both` draws each. The
-[divergence plot](#the-divergence-plot---satdiv) boxes the same intervals in white, and
-does keep the cross quadrants — there a rectangle carries real information, since it holds
-the divergence between the donor and its copy.
+dotted blue guide lines at the interval ends, and `both` draws each. The [divergence plot](#the-divergence-plot---satdiv) boxes the same intervals the same
+way, in white.
 
 ## What a line means
 
