@@ -144,17 +144,20 @@ def _boundary_votes(anchors, period):
     ref = anchors[0]
     shifted = [ref]
     for q in anchors[1:]:
+        if q.size < MIN_ANCHOR_HITS:
+            continue
         i = np.clip(np.searchsorted(ref, q), 1, ref.size - 1)
         near = np.where(np.abs(q - ref[i - 1]) <= np.abs(q - ref[i]), ref[i - 1], ref[i])
-        off = q - near
-        keep = np.abs(off) < period / 2
-        if np.count_nonzero(keep) < MIN_ANCHOR_HITS:
-            continue
-        off = off[keep]
-        med = int(np.median(off))
-        if np.median(np.abs(off - med)) > VOTE_TOL:
+        # Offsets are taken MODULO the period. In the units where the reference anchor
+        # itself is missing, the nearest reference copy is a whole period away -- and
+        # those are exactly the units that need another anchor's vote. Folding the offset
+        # keeps them instead of discarding them for being "too far".
+        ang = 2 * np.pi * (q - near) / period
+        centre = np.arctan2(np.sin(ang).mean(), np.cos(ang).mean()) * period / (2 * np.pi)
+        resid = (q - near - centre + period / 2) % period - period / 2
+        if np.median(np.abs(resid)) > VOTE_TOL:
             continue                            # inconsistent phase -> not an anchor
-        shifted.append(q[keep] - med)
+        shifted.append(np.rint(q - centre - np.median(resid)).astype(np.int64))
 
     allp = np.sort(np.concatenate(shifted))
     allp = allp[allp >= 0]
