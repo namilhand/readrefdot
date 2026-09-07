@@ -46,7 +46,6 @@ CB_W_MM = 1.6
 CHUNK = 64                 # rows of the matrix computed at once
 BOX_LW = 0.3               # the box drawn around an annotated interval
 COL_ANNOT = "#FFFFFF"      # white: the annotation has to read against a dark heat map
-COL_OVER = "#000000"       # a pair further apart than the scale top: off it, drawn black
 COL_LAB = "#444444"
 
 
@@ -231,14 +230,15 @@ def scale(params):
     greyscale and any colour vision.
 
     Fixed rather than fitted to the data, so the same colour means the same divergence in
-    every plot and two reads can be compared by eye. A pair further apart than the top is
-    off the scale entirely -- almost always a monomer that is barely this satellite -- and
-    is drawn black rather than being allowed to stretch the range everything else is
-    read on."""
+    every plot and two reads can be compared by eye. A pair further apart than the top of
+    the scale takes the top band's own colour: it is off the scale, not off the variable,
+    and giving it a colour of its own (black) put the most distant pairs at the dark end,
+    where the most alike ones live. Clamping keeps the ramp monotone -- lighter is always
+    further apart -- and the title counts how many pairs are held there."""
     vmax, step = params.satdiv_vmax, params.satdiv_step
     bounds = np.arange(0.0, vmax + step / 2, step)
     cmap = plt.get_cmap(params.satdiv_cmap, len(bounds) - 1).copy()
-    cmap.set_over(COL_OVER)
+    cmap.set_over(cmap(cmap.N - 1))         # clamp, do not colour differently
     return cmap, BoundaryNorm(bounds, cmap.N)
 
 
@@ -327,8 +327,11 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     cax = fig.add_axes([(ml + box + gap + strip + cb_gap) / fw, mb / fh, cb_w / fw,
                         box / fh])
     tick = next(t for t in (1, 2, 4, 5, 10, 20, 50) if params.satdiv_vmax / t <= 6)
-    cb = fig.colorbar(im, cax=cax, extend="max",
-                      ticks=np.arange(0, params.satdiv_vmax + tick / 2, tick))
+    ticks = np.arange(0, params.satdiv_vmax + tick / 2, tick)
+    cb = fig.colorbar(im, cax=cax, ticks=ticks)
+    # The top band holds everything above it, so say so on the bar rather than with a
+    # colour of its own.
+    cb.set_ticklabels([f"{t:g}" for t in ticks[:-1]] + [f"\u2265{ticks[-1]:g}"])
     cb.outline.set_linewidth(0.4)
     cax.tick_params(width=0.4, length=1.6, labelsize=4.5, pad=1.2)
     cax.set_ylabel("monomer-pair divergence (%)", fontsize=5, color=COL_LAB, labelpad=2)

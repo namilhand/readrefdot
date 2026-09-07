@@ -324,8 +324,8 @@ def block_labels(ctx, coords=False):
     coordinates, the read by its length. `coords` keeps the unit of the tick labels,
     which only the coordinate decoration draws."""
     ref = f"{ctx.chrom}:{ctx.win_start + 1:,}-{ctx.win_end:,}"
-    read = f"read ({len(ctx.read_seq):,} bp)"
-    return (f"{ref}  (Mb)", "read (kb)") if coords else (ref, read)
+    read = f"Read ({len(ctx.read_seq):,} bp)"
+    return (f"{ref}  (Mb)", "Read (kb)") if coords else (ref, read)
 
 
 def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):

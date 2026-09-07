@@ -434,10 +434,14 @@ r = 0.94, and monomers the dendrogram puts in one group sit at 1.7% divergence a
 ### The colour scale
 
 **Sequential, stepped and fixed**: one band per 1% divergence (`--satdiv-step`) from 0 to
+**Sequential, stepped and fixed**: one band per 1% divergence (`--satdiv-step`) from 0 to
 16% (`--satdiv-vmax`), from `viridis` by default (`--satdiv-cmap`) — dark = alike, light =
-far apart. A pair
-further apart than `--satdiv-vmax` is off the scale and drawn **black**, marked by the
-arrow on the colour bar.
+far apart. A pair further apart than `--satdiv-vmax` takes the **top band's own colour**;
+the bar's top tick reads `≥16` and the title counts how many pairs are held there.
+
+Clamping rather than flagging: a pair at 17% is off the *scale*, not off the *variable*, so
+giving it a colour of its own put the most distant pairs at the dark end of the ramp, where
+the most alike ones live. Clamped, lighter always means further apart.
 
 *Sequential, not diverging.* Divergence has a true zero and no meaningful midpoint, so a
 diverging map invents a centre and spends half its range on values the data never has —
@@ -515,7 +519,7 @@ way, in white.
 
 Everything is Arial (falling back to Helvetica, then DejaVu Sans). The two block labels on
 each axis are 5 pt black: the reference window as `Chr4:6,981,972-6,999,418` and the read
-as `read (21,543 bp)`, on the dot plot and the divergence plot alike. The dendrogram's
+as `Read (21,543 bp)`, on the dot plot and the divergence plot alike. The dendrogram's
 y-axis is titled `Distance` at 6 pt. Titles are 5 pt, the colour bar 4.5 pt.
 
 ## What a line means
