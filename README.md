@@ -119,7 +119,7 @@ the line stops that far short of the panel edge.
 | `--colour_ext` | grey70 | colour of every other diagonal |
 | `--monomer` | off | annotate satellite monomers instead of coordinates (below) |
 | `--monomer-period` | detect | satellite unit length in bp |
-| `--monomer-cut` | 0.95 | identity at which two monomers join the same group |
+| `--monomer-cut` | 0.97 | identity at which two monomers join the same group |
 | `--monomer-style` | lollipop | `lollipop` (stick + circle) or `block` |
 | `--monomer-consensus` | built-in CEN178 | FASTA of the repeat consensus that fixes where a unit starts; `none` derives the phase from the sequence |
 | `--monomer-tsv` | off | also write `<name>.monomers.tsv`, one row per unit |
@@ -230,9 +230,27 @@ Grouping is **per plot**: a colour identifies a variant within one figure and ca
 meaning across figures. `--monomer-tsv` writes the units out — position, group, length,
 sequence — which is what to use when groups need to be compared between plots.
 
-The default cut of 0.95 is what separates CEN178 variants in these arrays; 0.90 merges
-almost everything into one group, and above 0.97 the groups start to split on individual
-substitutions. The title reports how many units, of what length, in how many groups.
+**The cut.** 0.97 by default, chosen by measuring rather than by eye. Each candidate cut
+was scored by how much higher-order periodicity the resulting groups recover along the
+array, against a shuffle baseline built from that grouping's own composition (so a cut
+that simply makes more groups is not rewarded):
+
+| read | cut 0.95 | best NJ cut | cut tuned |
+|---|---|---|---|
+| Chr4 Col | +13.9 pts | +11.0 | **+14.4** at 0.96 |
+| Chr3 Col | +4.4 pts | +8.2 | **+15.5** at 0.975 |
+| Chr4 Ler | +17.4 pts | — | **+24.2** at 0.98 |
+
+At 0.95 the Chr3 read collapses 208 of 279 units into one group and scores barely above
+chance. 0.97 is the compromise across the three: it is better than 0.95 everywhere, and
+each read's own optimum (0.96–0.98) is close to it. Below 0.95 nearly everything merges;
+above 0.98 groups start splitting on individual substitutions. It remains a knob — if one
+array is clearly under- or over-split, set it for that array.
+
+The palette holds 20 colours, the first seven Okabe-Ito so the largest groups stay
+colour-blind safe and the rest chosen by farthest-point sampling in CIELAB (minimum
+pairwise ΔE 25). At the 0.97 cut the ten test plots produce 5–17 groups, none of which
+overruns it. The title reports how many units, of what length, in how many groups.
 
 ### The dendrogram
 

@@ -47,12 +47,15 @@ MIN_FULL = 0.7             # a unit shorter than this x period is a partial (arr
 CEN178 = ("AGTATAAGAACTTAAACCGCAACCCGATCTTAAAAGCCTAAGTAGTGTTTCCTTGTTAGAAGACACAAAGCCAAAGACTCA"
           "TATGGACTTTGGCTACACCATGAAAGCTTTGAGAAGCAAGAAGAAGGTTGGTTAGTGTTTTGGAGTCGAATATGACTTGAT"
           "GTCATGTGTATGATTG")
-DEFAULT_CUT = 0.95         # group units whose estimated identity is >= this
+DEFAULT_CUT = 0.97         # group units whose estimated identity is >= this
 
-# Group colours, most abundant group first. Okabe-Ito first (colour-blind safe), then
-# distinguishable extras; groups past the end of the palette fall back to UNSET.
-PALETTE = ["#D55E00", "#0072B2", "#009E73", "#CC79A7", "#E69F00", "#56B4E9",
-           "#7B3294", "#B2DF23", "#8B4513", "#00CED1", "#F0E442", "#FF69B4"]
+# Group colours, most abundant group first. The leading seven are Okabe-Ito, so the
+# groups that hold most of the units stay colour-blind safe; the rest were chosen by
+# farthest-point sampling in CIELAB against each other, white, and the two neutrals
+# below (minimum pairwise deltaE 25). Groups past the end fall back to UNSET.
+PALETTE = ["#D55E00", "#0072B2", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#7B3294",
+           "#B2DF23", "#FF1493", "#2CA02C", "#556B2F", "#4169E1", "#8B4513", "#FF9896",
+           "#00868B", "#D62728", "#DA70D6", "#C49C94", "#8C564B", "#7FC97F"]
 UNSET = "#DDDDDD"          # a group past the palette, or a partial unit
 NONSAT = "#4D5560"         # a stretch that is not this satellite at all
 
