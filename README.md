@@ -391,8 +391,17 @@ the two read boxes are near-identical at the duplication's own offset (0.0–1.3
 against array medians of 3.4–8.4%).
 
 `--matrix-tsv` also writes `<stem>.satdiv.tsv`, the whole matrix with each monomer's block,
-position and group. The PNG is written at 600 dpi (`--dpi`) and the PDF is vector, with the
-heat map embedded one sample per cell.
+position and group. The PNG is written at 600 dpi (`--dpi`); the PDF is vector except for
+the heat map, which is embedded as one image sample per monomer pair.
+
+**Why this one PDF is written uncompressed.** With `pdf.compression` on, matplotlib turns
+any image of 256 colours or fewer into a 4-bit *indexed-palette* image. A stepped scale has
+about twenty colours, so this plot always trips it — and Illustrator drops the palette when
+the PDF is placed, so the heat map arrives with no colour at all. (The dot plot and the
+dendrogram are pure vector and never had the problem.) Writing this one PDF uncompressed
+keeps the image in plain `DeviceRGB`; together with `interpolation="none"`, which embeds
+the matrix at its own size rather than a copy resampled to device resolution, the file
+comes to ~0.2–0.4 MB.
 
 ### What you are looking at
 

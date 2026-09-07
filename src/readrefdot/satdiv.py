@@ -297,8 +297,11 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     fig = plt.figure(figsize=(fw, fh))
 
     ax = fig.add_axes([ml / fw, mb / fh, box / fw, box / fh])
+    # interpolation="none" embeds the matrix at its own n x n size in the vector output
+    # instead of a resampled copy at device resolution: one PDF sample per monomer pair,
+    # which is both smaller and exactly the data.
     im = ax.imshow(D, cmap=cmap, norm=norm, extent=(0, n, 0, n), origin="lower",
-                   interpolation="nearest", aspect="auto")
+                   interpolation="none", aspect="auto")
     ref_spans, read_spans, marks = _spans(ctx, lines, units, n_ref)
     n_box = _draw_boxes(ax, ref_spans, read_spans)
     n_mark = _draw_marks(ax, marks)
@@ -346,7 +349,14 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     paths = []
     for fmt in formats:
         path = f"{out_stem}.satdiv.{fmt}"
-        fig.savefig(path, format=fmt, dpi=params.dpi)
+        # With pdf.compression on, matplotlib turns any image of 256 colours or fewer
+        # into a 4-bit INDEXED-palette image. A stepped scale has about twenty colours,
+        # so this plot always trips it -- and Illustrator drops the palette when the PDF
+        # is placed, which is why the heat map arrived there with no colour at all. The
+        # dot plot is pure vector and never had the problem. Writing this PDF
+        # uncompressed keeps the image in plain DeviceRGB; it costs ~0.2 MB.
+        with mpl.rc_context({"pdf.compression": 0} if fmt == "pdf" else {}):
+            fig.savefig(path, format=fmt, dpi=params.dpi)
         paths.append(path)
     plt.close(fig)
     return paths, dict(n_ref=n_ref, n_read=n - n_ref, n_boxes=n_box, n_marks=n_mark,
