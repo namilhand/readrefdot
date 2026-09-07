@@ -141,9 +141,9 @@ Because the strips run the full concatenated axis, they annotate the reference b
 the read block in turn, and the two can be read against each other: an insertion of
 whole satellite units shows up as extra blocks repeating the reference's colour pattern.
 
-Nothing is taken from the aligner, and the *number, length and content* of the units come
-from the sequences themselves. A consensus is used for one thing only — to fix where a
-unit starts, which is the one property the sequence cannot settle on its own. Four steps:
+Nothing is taken from the aligner. With a consensus (the default) each unit is placed by
+its own alignment to that consensus; without one, the units are found in the sequences
+themselves. Four steps:
 
 1. **Period.** Almost every k-mer in a tandem array recurs one unit later, so the
    histogram of distances between successive copies of the same 16-mer has a sharp mode
@@ -163,11 +163,33 @@ unit starts, which is the one property the sequence cannot settle on its own. Fo
    The two agree: on four reads, consensus tiling and self-anchored tiling produce the
    same units differing by a **constant rotation** (18, 6, 7 and 86 bp), each exactly
    `178 −` the rotation measured independently between the array consensus and the
-   published one. Consensus votes back 98.2–98.9% of boundaries, the same as the anchor
-   panel, with a higher median vote weight (71–102 agreeing k-mers vs 43–53).
+   published one.
 
-3. **Phase without a consensus (the fallback).** Every 16-mer that recurs at that spacing is a candidate marker of the same
-   point in successive units. Each is checked for a *consistent* offset from the best one
+   **The votes only say where to start; each unit is then placed by its own alignment.**
+   A semi-global Needleman–Wunsch puts the whole consensus inside a one-unit window, and
+   the next window starts where that alignment ended. This is what vote offsets alone
+   cannot do: an indel *inside* a unit splits that unit's k-mers into two clusters (those
+   before it vote at one position, those after it at another) and a tolerance can only
+   pick one of them. An alignment absorbs it — a 2 bp insertion 10 bp into a unit makes
+   that unit 180 bp and leaves all 79 downstream units at 178 bp with unchanged identity.
+
+   The window is deliberately one unit wide plus slack: a wider one lets the alignment
+   pick whichever unit ahead scores best and silently skip the one in front of it (which
+   marked every other unit non-satellite when first tried). The gap penalty must exceed
+   the mismatch penalty for the same reason it does in any aligner — at 1/−1/−1 a fifth of
+   the units came out 177 bp because a gap explained a substitution as cheaply as a
+   mismatch; at 2/−3/−5 the same units are 178 bp at identical identity.
+
+   **Non-satellite stretches are labelled, not tiled.** A window the consensus does not
+   match at ≥60% identity is emitted as a non-satellite block rather than cut into
+   pretend units: a synthetic 1,200 bp insert of random sequence comes back as two blocks
+   totalling 1,025 bp, and real centromeric reads have none. Non-satellite blocks are dark
+   grey on the axis, excluded from the groups and from the tree, and carry `satellite=0`
+   in `--monomer-tsv`; every satellite unit carries its `identity` to the consensus
+   (median 0.93–0.96 on real reads, and as low as 0.74 for genuinely degenerate units).
+
+3. **Phase without a consensus (the fallback).** Every 16-mer that recurs at the period is
+   a candidate marker of the same point in successive units. Each is checked for a *consistent* offset from the best one
    along the whole array — modulo the period, so a marker still votes in the units where
    the best one was mutated away — and a k-mer sitting at a different place in different
    units is not a phase marker and is dropped. The survivors (up to 60) vote on where a
@@ -191,7 +213,7 @@ unit starts, which is the one property the sequence cannot settle on its own. Fo
    the numbers only have to separate satellite variants) and clustered by average
    linkage, cut at `--monomer-cut`. Groups are colour-ordered by size, so the most
    abundant variant is always the first palette colour. Partial units at the array edges
-   are left grey.
+   are left light grey, non-satellite blocks dark grey.
 
 Each unit is drawn as a **lollipop** — a short stick from the panel edge with a circle
 centred on its end, coloured by group. The strip is only as thick as those marks need,

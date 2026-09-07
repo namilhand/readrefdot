@@ -33,6 +33,10 @@ VOTE_TOL = 6               # bp within which boundary votes are the same boundar
 MIN_ANCHOR_HITS = 3        # occurrences before a k-mer can be an anchor
 MAX_ANCHORS = 60
 CONS_K = 12                # k for matching the consensus: survives ~5% divergence
+MIN_IDENTITY = 0.60        # below this a unit is not the satellite at all
+MIN_GAP = 10               # shorter unaligned stretches are not called non-satellite
+ALIGN_SLACK = 40           # bp of slack around one unit's alignment window
+LOOKAHEAD = 6              # units to search ahead when the next one does not match
 MIN_CONS_COVER = 0.5       # consensus phasing needs a vote for this many expected units
 MIN_FULL = 0.7             # a unit shorter than this x period is a partial (array edge)
 
@@ -50,6 +54,7 @@ DEFAULT_CUT = 0.95         # group units whose estimated identity is >= this
 PALETTE = ["#D55E00", "#0072B2", "#009E73", "#CC79A7", "#E69F00", "#56B4E9",
            "#7B3294", "#B2DF23", "#8B4513", "#00CED1", "#F0E442", "#FF69B4"]
 UNSET = "#DDDDDD"          # a group past the palette, or a partial unit
+NONSAT = "#4D5560"         # a stretch that is not this satellite at all
 
 
 @dataclass
@@ -58,8 +63,10 @@ class Unit:
     block: str             # "ref" or "read"
     start: int
     end: int
-    group: int = -1        # -1 = ungrouped (partial units)
+    group: int = -1        # -1 = ungrouped (partial and non-satellite units)
     partial: bool = False
+    satellite: bool = True  # False = did not match the consensus: not this repeat
+    identity: float = 0.0   # fraction of the consensus matched, when aligned
 
     @property
     def length(self):
@@ -75,8 +82,19 @@ class MonomerTrack:
     identity: np.ndarray = None        # pairwise identity of the grouped units
 
     def colours(self):
-        return [UNSET if u.group < 0 or u.group >= len(PALETTE) else PALETTE[u.group]
-                for u in self.units]
+        out = []
+        for u in self.units:
+            if not u.satellite:
+                out.append(NONSAT)
+            elif u.group < 0 or u.group >= len(PALETTE):
+                out.append(UNSET)
+            else:
+                out.append(PALETTE[u.group])
+        return out
+
+    @property
+    def n_nonsatellite(self):
+        return sum(1 for u in self.units if not u.satellite and not u.partial)
 
     @property
     def n_full(self):
@@ -177,6 +195,90 @@ def _boundary_votes(anchors, period):
     seg_end = np.r_[brk[1:], allp.size]
     pos = np.array([int(np.median(allp[s:e])) for s, e in zip(brk, seg_end)])
     return pos, seg_end - brk
+
+
+def align_consensus(window, cons, match=2, mismatch=-3, gap=-5):
+    """Place the WHOLE consensus inside `window`, gaps at the window's ends free.
+
+    Semi-global Needleman-Wunsch. The rows are vectorised, including the horizontal gap
+    term: with a linear gap penalty H[i][j] = max(M[j], H[i][j-1] + g) is a running
+    maximum of M[j] - g*j, so a row costs a handful of numpy calls rather than a Python
+    loop over its cells.
+
+    The gap must cost more than a mismatch or the alignment invents 1 bp indels to
+    explain ordinary substitutions: at match/mismatch/gap = 1/-1/-1 a fifth of the units
+    came out 177 bp long, and at 2/-3/-5 the same units are 178 bp at identical identity.
+
+    Returns (start, end, identity) as offsets into `window`, or None."""
+    m, n = len(cons), len(window)
+    if n < m // 2:
+        return None
+    W = np.frombuffer(window.encode(), dtype=np.uint8)
+    C = np.frombuffer(cons.encode(), dtype=np.uint8)
+    H = np.zeros((m + 1, n + 1), dtype=np.int32)
+    H[1:, 0] = np.arange(1, m + 1) * gap          # the consensus must be fully used
+    j = np.arange(n + 1, dtype=np.int32)
+    for i in range(1, m + 1):
+        sc = np.where(W == C[i - 1], match, mismatch)
+        row = np.empty(n + 1, dtype=np.int32)
+        row[0] = H[i, 0]
+        row[1:] = np.maximum(H[i - 1, :-1] + sc, H[i - 1, 1:] + gap)
+        H[i] = np.maximum.accumulate(row - gap * j) + gap * j
+
+    jj = int(np.argmax(H[m]))
+    i, k, matches = m, jj, 0
+    while i > 0:
+        if k > 0 and H[i, k] == H[i - 1, k - 1] + (match if W[k - 1] == C[i - 1]
+                                                   else mismatch):
+            matches += int(W[k - 1] == C[i - 1])
+            i -= 1
+            k -= 1
+        elif H[i, k] == H[i - 1, k] + gap:
+            i -= 1
+        else:
+            k -= 1
+    return k, jj, matches / m
+
+
+def _scan_block(S, cons, b0, b1, period, first, min_identity=MIN_IDENTITY):
+    """Walk a block unit by unit, aligning the consensus to each in turn.
+
+    Each unit starts where the previous one's alignment ENDED, so an indel inside a unit
+    is absorbed by that unit's own alignment and cannot push anything downstream out of
+    register. Vote offsets alone cannot do that: an indel inside a unit splits its
+    snippets into two clusters and the tolerance can only pick one of them.
+
+    A window the consensus does not match is emitted as a non-satellite block, so a
+    transposon or any other insert is labelled rather than tiled as if it were satellite.
+    Returns [(start, end, is_satellite, identity), ...]."""
+    out, p, m = [], first, len(cons)
+    while p < b1:
+        # One unit at a time. A wider window would let the alignment pick whichever unit
+        # ahead scores best and silently skip the one in front of it.
+        win = min(b1, p + period + ALIGN_SLACK)
+        hit = align_consensus(S[p:win], cons) if win - p >= m // 2 else None
+        if hit and hit[2] >= min_identity:
+            st, en, ident = p + hit[0], p + hit[1], hit[2]
+            if st - p >= MIN_GAP:
+                out.append((p, st, False, 0.0))
+            out.append((st, en, True, ident))
+            p = en if en > p else p + period
+            continue
+        # No unit here. Look further ahead: whatever is skipped is not this satellite.
+        far = min(b1, p + LOOKAHEAD * period)
+        ahead = align_consensus(S[p:far], cons) if far - p >= m // 2 else None
+        if ahead and ahead[2] >= min_identity and ahead[0] >= MIN_GAP:
+            out.append((p, p + ahead[0], False, hit[2] if hit else 0.0))
+            out.append((p + ahead[0], p + ahead[1], True, ahead[2]))
+            p = p + ahead[1]
+        elif b1 - p < m:              # tail too short to hold a unit: partial, not junk
+            out.append((p, b1, True, 0.0))
+            break
+        else:
+            step = min(period, b1 - p)
+            out.append((p, p + step, False, hit[2] if hit else 0.0))
+            p += step
+    return out
 
 
 def _consensus_votes(seq, cons, k=CONS_K):
@@ -366,29 +468,41 @@ def annotate(ctx, period=None, cut=DEFAULT_CUT, anchor_k=ANCHOR_K, sim_k=SIM_K,
     if not period:
         return None
 
-    phase = "de novo"
-    votes = weights = None
+    phase, units = "de novo", []
+    cons = None
     if consensus:
         v, w, strand, _ = _consensus_votes(S, consensus)
         # Only trust it if it actually phases the array: enough units carry a vote.
-        strong = int(np.count_nonzero(w >= 3))
-        if strong >= MIN_CONS_COVER * len(S) / period:
-            votes, weights = v, w
+        if int(np.count_nonzero(w >= 3)) >= MIN_CONS_COVER * len(S) / period:
+            cons = consensus if strand == "+" else revcomp(consensus)
             phase = f"consensus ({'forward' if strand == '+' else 'reverse'})"
-    if votes is None:
+
+    if cons is not None:
+        # Votes only say where to START scanning; from there each unit is placed by its
+        # own alignment, so an indel inside one unit stays inside that unit.
+        for name, b0, b1 in blocks:
+            inside = v[(v >= b0) & (v < b1) & (w >= 3)]
+            first = int(inside.min()) if inside.size else b0
+            while first - period >= b0:
+                first -= period
+            if first > b0:
+                units.append(Unit(block=name, start=b0, end=first, partial=True))
+            for st, en, sat, ident in _scan_block(S, cons, b0, b1, period, first):
+                units.append(Unit(block=name, start=st, end=en, satellite=sat,
+                                  identity=ident,
+                                  partial=(en - st) < MIN_FULL * period))
+    else:
         anchors = _anchor_panel(S, period, anchor_k)
         votes, weights = _boundary_votes(anchors, period)
+        for name, b0, b1 in blocks:
+            tiles = _tile_from_votes(votes, weights, b0, b1, period)
+            if tiles is None:                      # too few votes to lead: walk instead
+                tiles = _tile_block(votes, weights, b0, b1, period)
+            for st, en in tiles:
+                units.append(Unit(block=name, start=st, end=en,
+                                  partial=(en - st) < MIN_FULL * period))
 
-    units = []
-    for name, b0, b1 in blocks:
-        tiles = _tile_from_votes(votes, weights, b0, b1, period)
-        if tiles is None:                          # too few votes to lead: walk instead
-            tiles = _tile_block(votes, weights, b0, b1, period)
-        for s, e in tiles:
-            units.append(Unit(block=name, start=s, end=e,
-                              partial=(e - s) < MIN_FULL * period))
-
-    full = [u for u in units if not u.partial]
+    full = [u for u in units if not u.partial and u.satellite]
     if full:            # report the length units actually have, not the seed period
         lens = np.array([u.length for u in full])
         period = int(np.bincount(lens).argmax())
@@ -407,7 +521,7 @@ def write_tsv(track, ctx, path):
     R = len(ctx.ref_seq)
     with open(path, "w") as fh:
         fh.write("block\tindex\tplot_start\tplot_end\tblock_start\tref_pos\t"
-                 "length\tgroup\tpartial\tphase\tsequence\n")
+                 "length\tgroup\tpartial\tsatellite\tidentity\tphase\tsequence\n")
         n = {"ref": 0, "read": 0}
         for u in track.units:
             n[u.block] += 1
@@ -415,5 +529,6 @@ def write_tsv(track, ctx, path):
             refpos = (ctx.win_start + u.start + 1) if u.block == "ref" else "."
             fh.write(f"{u.block}\t{n[u.block]}\t{u.start}\t{u.end}\t{bstart}\t{refpos}\t"
                      f"{u.length}\t{u.group if u.group >= 0 else '.'}\t"
-                     f"{int(u.partial)}\t{track.phase}\t{S[u.start:u.end]}\n")
+                     f"{int(u.partial)}\t{int(u.satellite)}\t{u.identity:.3f}\t"
+                     f"{track.phase}\t{S[u.start:u.end]}\n")
     return path

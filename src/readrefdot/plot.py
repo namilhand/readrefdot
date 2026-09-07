@@ -354,7 +354,9 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
     if track is not None:                          # its own line: the title sets the
         title += (f"\n{track.n_full} monomers of {track.period} bp, "   # figure width
                   f"{track.n_groups} groups at {int(params.monomer_cut * 100)}% identity"
-                  f"\nphase: {track.phase}")
+                  f"\nphase: {track.phase}"
+                  + (f"  ·  {track.n_nonsatellite} non-satellite"
+                     if track.n_nonsatellite else ""))
     (strip_ax or ax).set_title(title, fontsize=5, linespacing=1.6)
 
     paths = []
