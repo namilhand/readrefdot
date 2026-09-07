@@ -7,7 +7,8 @@ skipped, making the wrapper safe to re-run after adding rows or after a failure.
 Required columns  bam, readid, reference, outdir, suffix
 Optional columns  k, min-seg, merge-gap, panel-mm, colour_main, colour_ext,
                   ref-lines, read-lines, monomer, monomer-period, monomer-cut,
-                  monomer-style, monomer-consensus, annot-style, dpi, satdiv,
+                  monomer-style, monomer-consensus, annot-style, dpi,
+                  png-panel-mm, png-text-pt, satdiv,
                   satdiv-panel-mm, satdiv-cmap, satdiv-vmax, satdiv-step
                   (blank means "use the default"; '-' spellings also accepted with '_')
 
@@ -32,8 +33,8 @@ REQUIRED = ("bam", "readid", "reference", "outdir", "suffix")
 OPTIONAL = ("k", "min-seg", "merge-gap", "panel-mm", "colour_main", "colour_ext",
             "ref-lines", "read-lines", "monomer", "monomer-period", "monomer-cut",
             "monomer-style", "monomer-consensus", "tree-method",
-            "annot-style", "dpi", "satdiv", "satdiv-panel-mm", "satdiv-cmap",
-            "satdiv-vmax", "satdiv-step")
+            "annot-style", "dpi", "png-panel-mm", "png-text-pt", "satdiv",
+            "satdiv-panel-mm", "satdiv-cmap", "satdiv-vmax", "satdiv-step")
 FORMATS = ("png", "pdf")
 
 
@@ -110,6 +111,10 @@ def params_for(v):
         p.annot_style = v["annot-style"]
     if v["dpi"]:
         p.dpi = int(v["dpi"])
+    if v["png-panel-mm"]:
+        p.png_panel_mm = float(v["png-panel-mm"])
+    if v["png-text-pt"]:
+        p.png_text_pt = float(v["png-text-pt"])
     if v["satdiv"] and v["satdiv"].lower() not in ("0", "no", "false", "n"):
         p.satdiv = True
     if v["satdiv-panel-mm"]:
@@ -195,7 +200,7 @@ def main(argv=None):
                                      formats=FORMATS)
                     if st["monomer"] is not None:
                         tree_mod.draw(st["monomer"], stem, panel_mm=par.panel_mm,
-                                      formats=FORMATS,
+                                      formats=FORMATS, params=par,
                                       method=v["tree-method"] or "dendrogram",
                                       title=f"{ctx.read_id}\n"
                                             f"{st['monomer'].n_full} monomers, "

@@ -37,8 +37,8 @@ from matplotlib.colors import BoundaryNorm
 from matplotlib.patches import Rectangle
 
 from . import monomer as mono
-from .plot import (AXLAB_PT, COL_AXLAB, MM, STEM_MM, STYLE, _dot_size,
-                   _lollipops, block_labels, insertion_sites)
+from .plot import (AXLAB_PT, BASE_PT, COL_AXLAB, MM, STEM_MM, _dot_size,
+                   _lollipops, block_labels, insertion_sites, sizes_for)
 
 GAP_MM = 0.0               # panel to strip: the sticks start at the edge of the panel
 CB_GAP_MM = 3.5            # strip to colour bar
@@ -202,7 +202,7 @@ def _spans(ctx, lines, units, n_ref):
     return out[0], out[1], ins, dels
 
 
-def _draw_boxes(ax, ref_spans, read_spans):
+def _draw_boxes(ax, ref_spans, read_spans, S):
     """A box around each annotated interval, in every quadrant that holds one.
 
     An annotated interval -- the donor region, the inserted segment, the deleted block --
@@ -213,17 +213,19 @@ def _draw_boxes(ax, ref_spans, read_spans):
     rects = [(a, b, a, b) for a, b in ref_spans + read_spans]
     for x0, x1, y0, y1 in rects:
         ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
-                               edgecolor=COL_ANNOT, linewidth=BOX_LW, zorder=5))
+                               edgecolor=COL_ANNOT, linewidth=BOX_LW * S.g, zorder=5))
     return len(rects)
 
 
-def _draw_marks(ax, ins, dels, n_ref, n):
+def _draw_marks(ax, ins, dels, n_ref, n, S):
     """A dashed cross-hair at each junction, inside the block it belongs to: the insertion
     site in the reference, the deletion junction in the read."""
     for marks, lo, hi in ((ins, 0, n_ref), (dels, n_ref, n)):
         for m in marks:
-            ax.vlines(m, lo, hi, colors=COL_ANNOT, lw=BOX_LW, ls=(0, (2, 2)), zorder=5)
-            ax.hlines(m, lo, hi, colors=COL_ANNOT, lw=BOX_LW, ls=(0, (2, 2)), zorder=5)
+            ax.vlines(m, lo, hi, colors=COL_ANNOT, lw=BOX_LW * S.g,
+                      ls=(0, (2, 2)), zorder=5)
+            ax.hlines(m, lo, hi, colors=COL_ANNOT, lw=BOX_LW * S.g,
+                      ls=(0, (2, 2)), zorder=5)
     return len(ins) + len(dels)
 
 
@@ -249,22 +251,22 @@ def scale(params):
     return cmap, BoundaryNorm(bounds, cmap.N)
 
 
-def _strips(fig, geom, units, n_ref, n, panel_mm):
+def _strips(fig, geom, units, n_ref, n, S):
     """The monomer annotation: one lollipop per monomer, along the top and the right of
     the whole panel, so it labels the reference block and the read block in turn."""
     x0, y0, box, gap, strip, fw, fh = geom
     centres = np.arange(n) + 0.5
     cols = [_colour(u) for u in units]
-    dot = _dot_size(panel_mm, n)
-    stem = STEM_MM * MM / strip
+    dot = _dot_size(S, n)
+    stem = STEM_MM * MM * S.g / strip
     top = fig.add_axes([x0 / fw, (y0 + box + gap) / fh, box / fw, strip / fh])
     right = fig.add_axes([(x0 + box + gap) / fw, y0 / fh, strip / fw, box / fh])
-    _lollipops(top, centres, cols, dot, True, stem)
-    _lollipops(right, centres, cols, dot, False, stem)
+    _lollipops(top, centres, cols, dot, True, stem, 0.2 * S.g)
+    _lollipops(right, centres, cols, dot, False, stem, 0.2 * S.g)
     top.set_xlim(0, n); top.set_ylim(0, 1)
     right.set_xlim(0, 1); right.set_ylim(0, n)
-    top.axvline(n_ref, color="black", lw=0.5, ymax=stem)
-    right.axhline(n_ref, color="black", lw=0.5, xmax=stem)
+    top.axvline(n_ref, color="black", lw=0.5 * S.g, ymax=stem)
+    right.axhline(n_ref, color="black", lw=0.5 * S.g, xmax=stem)
     for a in (top, right):
         a.set_xticks([]); a.set_yticks([])
         for sp in a.spines.values():        # the panel's own frame is the strip's base
@@ -272,34 +274,15 @@ def _strips(fig, geom, units, n_ref, n, panel_mm):
     return top
 
 
-def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
-    """Draw the quad divergence plot. Returns (paths, stats)."""
-    S = ctx.ref_seq + ctx.read_seq
-    track = mono.annotate(ctx, period=params.monomer_period, cut=params.monomer_cut,
-                          consensus=params.monomer_consensus)
-    if track is None:
-        raise ValueError("not a tandem satellite array: no monomers to compare")
-    cons = params.monomer_consensus
-    if cons:
-        # annotate() may have phased the array on the reverse strand; project onto the
-        # same orientation it tiled with, or every unit would align back to front.
-        cons = mono.revcomp(cons) if "reverse" in track.phase else cons
-    else:
-        cons = S[track.units[0].start:track.units[0].end]
-
-    units, n_ref, D = build(S, track, cons)
-    n = len(units)
-    if n == 0:
-        raise ValueError("no whole satellite monomers to compare")
+def _figure(ctx, params, lines, units, n_ref, n, D, track, S):
+    """One drawing of the divergence plot, at scale `S`."""
     cmap, norm = scale(params)
-
-    mpl.rcParams.update(STYLE)
-    panel_mm = params.satdiv_panel_mm or params.panel_mm
-    box = panel_mm * MM
-    dot = _dot_size(panel_mm, n)
-    strip = STEM_MM * MM + dot / 72 / 2 + 0.05 * MM     # the stick plus half a circle
-    gap, cb_gap, cb_w = GAP_MM * MM, CB_GAP_MM * MM, CB_W_MM * MM
-    ml, mb, mt, mr = 0.17, 0.17, 0.50, 0.34
+    mpl.rcParams.update(S.rc())
+    box = S.panel_mm * MM
+    dot = _dot_size(S, n)
+    strip = STEM_MM * MM * S.g + dot / 72 / 2 + 0.05 * MM * S.g   # stick + half a circle
+    gap, cb_gap, cb_w = (GAP_MM * MM * S.g, CB_GAP_MM * MM * S.g, CB_W_MM * MM * S.g)
+    ml, mb, mt, mr = 0.17 * S.t, 0.17 * S.t, 0.50 * S.t, 0.34 * S.t
     fw = ml + box + gap + strip + cb_gap + cb_w + mr
     fh = mb + box + gap + strip + mt
     fig = plt.figure(figsize=(fw, fh))
@@ -311,25 +294,24 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     im = ax.imshow(D, cmap=cmap, norm=norm, extent=(0, n, 0, n), origin="lower",
                    interpolation="none", aspect="auto")
     ref_spans, read_spans, ins, dels = _spans(ctx, lines, units, n_ref)
-    n_box = _draw_boxes(ax, ref_spans, read_spans)
-    n_mark = _draw_marks(ax, ins, dels, n_ref, n)
+    n_box = _draw_boxes(ax, ref_spans, read_spans, S)
+    n_mark = _draw_marks(ax, ins, dels, n_ref, n, S)
     ax.set_xlim(0, n); ax.set_ylim(0, n)
-    ax.axvline(n_ref, color=COL_ANNOT, lw=0.5, zorder=4)
-    ax.axhline(n_ref, color=COL_ANNOT, lw=0.5, zorder=4)
+    ax.axvline(n_ref, color=COL_ANNOT, lw=0.5 * S.g, zorder=4)
+    ax.axhline(n_ref, color=COL_ANNOT, lw=0.5 * S.g, zorder=4)
     ax.set_xticks([]); ax.set_yticks([])
     for sp in ax.spines.values():
-        sp.set_linewidth(0.5); sp.set_color("black")
+        sp.set_linewidth(0.5 * S.g); sp.set_color("black")
 
-    strip_ax = _strips(fig, (ml, mb, box, gap, strip, fw, fh), units, n_ref, n,
-                       panel_mm)
+    strip_ax = _strips(fig, (ml, mb, box, gap, strip, fw, fh), units, n_ref, n, S)
 
     for pos, lab in zip((n_ref / 2, n_ref + (n - n_ref) / 2), block_labels(ctx)):
         ax.annotate(lab, xy=(pos, 0), xycoords=("data", "axes fraction"),
-                    xytext=(0, -6), textcoords="offset points",
-                    ha="center", va="top", fontsize=AXLAB_PT, color=COL_AXLAB)
+                    xytext=(0, -6 * S.t), textcoords="offset points",
+                    ha="center", va="top", fontsize=AXLAB_PT * S.t, color=COL_AXLAB)
         ax.annotate(lab, xy=(0, pos), xycoords=("axes fraction", "data"),
-                    xytext=(-8, 0), textcoords="offset points", rotation=90,
-                    ha="right", va="center", fontsize=AXLAB_PT, color=COL_AXLAB)
+                    xytext=(-8 * S.t, 0), textcoords="offset points", rotation=90,
+                    ha="right", va="center", fontsize=AXLAB_PT * S.t, color=COL_AXLAB)
 
     cax = fig.add_axes([(ml + box + gap + strip + cb_gap) / fw, mb / fh, cb_w / fw,
                         box / fh])
@@ -339,9 +321,11 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     # The top band holds everything above it, so say so on the bar rather than with a
     # colour of its own.
     cb.set_ticklabels([f"{t:g}" for t in ticks[:-1]] + [f"\u2265{ticks[-1]:g}"])
-    cb.outline.set_linewidth(0.4)
-    cax.tick_params(width=0.4, length=1.6, labelsize=4.5, pad=1.2)
-    cax.set_ylabel("monomer-pair divergence (%)", fontsize=5, color=COL_LAB, labelpad=2)
+    cb.outline.set_linewidth(0.4 * S.g)
+    cax.tick_params(width=0.4 * S.g, length=1.6 * S.g, labelsize=4.5 * S.t,
+                    pad=1.2 * S.t)
+    cax.set_ylabel("monomer-pair divergence (%)", fontsize=BASE_PT * S.t, color=COL_LAB,
+                   labelpad=2 * S.t)
 
     over = int((D > params.satdiv_vmax).sum())
     title = (f"{ctx.read_id}\n{ctx.window}  (strand {ctx.strand})\n"
@@ -357,10 +341,38 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
         notes = (["the insertion site in the reference"] if ins else []) + \
                 (["the deletion junction in the read"] if dels else [])
         title += ("\ndashed: " + " and ".join(notes)) if notes else ""
-    strip_ax.set_title(title, fontsize=5, linespacing=1.6)
+    strip_ax.set_title(title, fontsize=BASE_PT * S.t, linespacing=1.6)
+    return fig, n_box, n_mark, over
 
-    paths = []
+
+def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
+    """Draw the quad divergence plot. Returns (paths, stats).
+
+    Each format is drawn at its own size, as the dot plot is: the PDF at its panel size
+    for placing in a figure, the PNG larger and with larger text for looking at."""
+    seq = ctx.ref_seq + ctx.read_seq
+    track = mono.annotate(ctx, period=params.monomer_period, cut=params.monomer_cut,
+                          consensus=params.monomer_consensus)
+    if track is None:
+        raise ValueError("not a tandem satellite array: no monomers to compare")
+    cons = params.monomer_consensus
+    if cons:
+        # annotate() may have phased the array on the reverse strand; project onto the
+        # same orientation it tiled with, or every unit would align back to front.
+        cons = mono.revcomp(cons) if "reverse" in track.phase else cons
+    else:
+        cons = seq[track.units[0].start:track.units[0].end]
+
+    units, n_ref, D = build(seq, track, cons)
+    n = len(units)
+    if n == 0:
+        raise ValueError("no whole satellite monomers to compare")
+
+    paths, n_box, n_mark, over = [], 0, 0, 0
     for fmt in formats:
+        S = sizes_for(fmt, params, params.satdiv_panel_mm or params.panel_mm)
+        fig, n_box, n_mark, over = _figure(ctx, params, lines, units, n_ref, n, D,
+                                           track, S)
         path = f"{out_stem}.satdiv.{fmt}"
         # With pdf.compression on, matplotlib turns any image of 256 colours or fewer
         # into a 4-bit INDEXED-palette image. A stepped scale has about twenty colours,
@@ -370,11 +382,10 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
         # uncompressed keeps the image in plain DeviceRGB; it costs ~0.2 MB.
         with mpl.rc_context({"pdf.compression": 0} if fmt == "pdf" else {}):
             fig.savefig(path, format=fmt, dpi=params.dpi)
+        plt.close(fig)
         paths.append(path)
-    plt.close(fig)
     return paths, dict(n_ref=n_ref, n_read=n - n_ref, n_boxes=n_box, n_marks=n_mark,
-                       n_over=over,
-                       monomer=track, units=units, matrix=D)
+                       n_over=over, monomer=track, units=units, matrix=D)
 
 
 def write_tsv(ctx, units, n_ref, D, path):

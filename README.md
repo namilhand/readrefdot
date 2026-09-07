@@ -139,6 +139,8 @@ the line stops that far short of the panel edge.
 | `--satdiv-step` | 1 | % divergence per colour band |
 | `--matrix-tsv` | off | with `--satdiv`, also write `<name>.satdiv.tsv` |
 | `--dpi` | 600 | resolution of the PNG; the PDF is vector either way |
+| `--png-panel-mm` | 140 | plot box for the PNG copy; the PDF keeps `--panel-mm` |
+| `--png-text-pt` | 18 | base text size for the PNG copy; the PDF keeps 5 pt |
 
 ## Monomer annotation (`--monomer`)
 
@@ -324,7 +326,7 @@ readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redr
 | `colour_main`, `colour_ext` | | per-row colours |
 | `ref-lines`, `read-lines` | | annotation positions, comma-separated |
 | `monomer`, `monomer-period`, `monomer-cut`, `monomer-style`, `monomer-consensus` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.dendrogram.png`/`.pdf` |
-| `annot-style`, `dpi` | | how the annotated intervals are drawn, and the PNG resolution |
+| `annot-style`, `dpi`, `png-panel-mm`, `png-text-pt` | | how the annotated intervals are drawn, and how the PNG copy is sized |
 | `satdiv`, `satdiv-panel-mm`, `satdiv-cmap`, `satdiv-vmax`, `satdiv-step` | | the divergence plot; `satdiv` is on for anything but `0`/`no`/`false` |
 
 Column names accept either `-` or `_`. Blank cells mean "use the default".
@@ -525,12 +527,28 @@ Boxes are drawn in blue (`#0073b2`) at 0.3 pt. `--annot-style lines` restores th
 dotted blue guide lines at the interval ends, and `both` draws each. The [divergence plot](#the-divergence-plot---satdiv) boxes the same intervals the same
 way, in white.
 
+## Two sizes: the PDF and the PNG
+
+**The PDF and the PNG are drawn separately, at different sizes.** The PDF is figure-sized —
+`--panel-mm`, 45 mm by default, with 5 pt text — for placing in a page layout. The PNG is
+**140 mm with 18 pt text** (`--png-panel-mm`, `--png-text-pt`), for looking at on a screen
+or a slide, where a 45 mm panel is a postage stamp and 5 pt text is unreadable.
+
+It is not the same zoom: the text is deliberately larger *relative to* the panel, since the
+PNG is read at whatever size the screen gives it. Everything geometric — margins, strips,
+line widths, marker diameters — follows the panel; everything textual follows the text size.
+The k-mer comparison, the monomer tiling and the grouping are done once and shared between
+the two drawings, so the second costs only the drawing.
+
+At 600 dpi (`--dpi`) a 140 mm panel comes out around 4000 px and about 1 MB.
+
 ## Typography
 
 Everything is Arial (falling back to Helvetica, then DejaVu Sans). The two block labels on
-each axis are 5 pt black: the reference window as `Chr4:6,981,972-6,999,418` and the read
-as `Read (21,543 bp)`, on the dot plot and the divergence plot alike. The dendrogram's
-y-axis is titled `Distance` at 6 pt. Titles are 5 pt, the colour bar 4.5 pt.
+each axis are 5 pt black in the PDF: the reference window as `Chr4:6,981,972-6,999,418` and
+the read as `Read (21,543 bp)`, on the dot plot and the divergence plot alike. The
+dendrogram's y-axis is titled `Distance` at 6 pt, titles are 5 pt, the colour bar 4.5 pt —
+all of them 3.6x that in the PNG.
 
 ## What a line means
 

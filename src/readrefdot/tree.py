@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
 from .monomer import PALETTE, UNSET
-from .plot import MM, STYLE
+from .plot import BASE_PT, MM, STYLE, Sizes, sizes_for
 
 TIP_MIN, TIP_MAX = 0.8, 2.5        # pt, marker diameter
 SCALE_STEPS = (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2)
@@ -145,17 +145,13 @@ def _dendrogram_layout(merges, n):
     return order, xpos, height, kids, root
 
 
-def draw_dendrogram(track, out_stem, panel_mm=45.0, formats=("png", "pdf"), title=None):
-    """Write <out_stem>.dendrogram.png/.pdf: the grouping tree, cut line and all."""
-    n = 0 if track.identity is None else track.identity.shape[0]
-    if n < 3 or not track.merges:
-        return []
+def _dendrogram_figure(track, order, xpos, height, kids, root, n, S, title):
+    """One drawing of the grouping tree, at scale `S`."""
     full = [u for u in track.units if not u.partial and u.satellite]
-    order, xpos, height, kids, root = _dendrogram_layout(track.merges, n)
-
-    mpl.rcParams.update(STYLE)
-    box = panel_mm * MM
-    ml, mr, mb, mt = 0.30, 0.06, 0.20, 0.44 if title else 0.06
+    mpl.rcParams.update(S.rc())
+    box = S.panel_mm * MM
+    ml, mr = 0.30 * S.t, 0.06 * S.t
+    mb, mt = 0.20 * S.t, (0.44 if title else 0.06) * S.t
     fw, fh = box + ml + mr, box + mb + mt
     fig = plt.figure(figsize=(fw, fh))
     ax = fig.add_axes([ml / fw, mb / fh, box / fw, box / fh])
@@ -178,44 +174,60 @@ def draw_dendrogram(track, out_stem, panel_mm=45.0, formats=("png", "pdf"), titl
             cols.append(colour_of(child))
         segs.append([(xpos[a], h), (xpos[b], h)])
         cols.append(colour_of(node))
-    ax.add_collection(LineCollection(segs, colors=cols, linewidths=0.35, zorder=2))
+    ax.add_collection(LineCollection(segs, colors=cols, linewidths=0.35 * S.g, zorder=2))
 
-    tip = float(np.clip(panel_mm / max(n, 1) * 0.9 / 25.4 * 72, TIP_MIN, TIP_MAX))
+    tip = float(np.clip(S.panel_mm / max(n, 1) * 0.9 / 25.4 * 72,
+                        TIP_MIN * S.g, TIP_MAX * S.g))
     tcol = [PALETTE[full[i].group] if 0 <= full[i].group < len(PALETTE) else UNSET
             for i in range(n)]
     ax.scatter([xpos[i] for i in range(n)], np.zeros(n), s=tip ** 2,
                c=tcol, linewidths=0, zorder=3, clip_on=False)
 
     top = max(height.values()) or 1.0
-    ax.axhline(track.cut, color="#444444", lw=0.5, ls=(0, (3, 2)), zorder=4)
+    ax.axhline(track.cut, color="#444444", lw=0.5 * S.g, ls=(0, (3, 2)), zorder=4)
     ax.text(n * 0.99, track.cut, f"{(1 - track.cut) * 100:.0f}%", ha="right", va="bottom",
-            fontsize=5, color="#444444")
+            fontsize=BASE_PT * S.t, color="#444444")
     ax.set_xlim(-0.5, n - 0.5)
     ax.set_ylim(0, top * 1.06)
     ax.set_xticks([])
-    ax.set_ylabel("Distance", fontsize=6, color="#000000", labelpad=2)
-    ax.tick_params(axis="y", labelsize=5, width=0.5, color="black", length=2)
+    ax.set_ylabel("Distance", fontsize=6 * S.t, color="#000000", labelpad=2 * S.t)
+    ax.tick_params(axis="y", labelsize=BASE_PT * S.t, width=0.5 * S.g, color="black",
+                   length=2 * S.g)
     ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(4))
     for name, sp in ax.spines.items():
         sp.set_visible(name == "left")
-        sp.set_linewidth(0.5)
+        sp.set_linewidth(0.5 * S.g)
     if title:
-        ax.set_title(title, fontsize=5, linespacing=1.6)
+        ax.set_title(title, fontsize=BASE_PT * S.t, linespacing=1.6)
+    return fig
+
+
+def draw_dendrogram(track, out_stem, panel_mm=45.0, formats=("png", "pdf"), title=None,
+                    params=None):
+    """Write <out_stem>.dendrogram.png/.pdf: the grouping tree, cut line and all.
+
+    Each format is drawn at its own size, as the plots are."""
+    n = 0 if track.identity is None else track.identity.shape[0]
+    if n < 3 or not track.merges:
+        return []
+    order, xpos, height, kids, root = _dendrogram_layout(track.merges, n)
 
     paths = []
     for fmt in formats:
+        S = sizes_for(fmt, params, panel_mm) if params is not None else Sizes(panel_mm)
+        fig = _dendrogram_figure(track, order, xpos, height, kids, root, n, S, title)
         path = f"{out_stem}.dendrogram.{fmt}"
-        fig.savefig(path, format=fmt)
+        fig.savefig(path, format=fmt, dpi=getattr(params, "dpi", 600))
+        plt.close(fig)
         paths.append(path)
-    plt.close(fig)
     return paths
 
 
 def draw(track, out_stem, panel_mm=45.0, formats=("png", "pdf"), title=None,
-         method="dendrogram"):
+         method="dendrogram", params=None):
     """Draw the monomer tree. `method` is "dendrogram" (the grouping tree) or "nj"."""
     if method != "nj":
-        return draw_dendrogram(track, out_stem, panel_mm, formats, title)
+        return draw_dendrogram(track, out_stem, panel_mm, formats, title, params)
     return draw_nj(track, out_stem, panel_mm, formats, title)
 
 

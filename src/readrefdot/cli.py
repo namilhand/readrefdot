@@ -110,6 +110,12 @@ def build_parser():
     p.add_argument("--annot-style", choices=("box", "lines", "both"), default="box",
                    help="how --ref-lines/--read-lines are drawn: a black box around each "
                         "annotated interval, dotted guide lines at its ends, or both")
+    p.add_argument("--png-panel-mm", type=float, default=None, metavar="MM",
+                   help="plot box for the PNG copy; the PDF keeps --panel-mm "
+                        "(default: 140)")
+    p.add_argument("--png-text-pt", type=float, default=None, metavar="PT",
+                   help="base text size for the PNG copy; the PDF keeps 5 pt "
+                        "(default: 18)")
     p.add_argument("--dpi", type=int, default=None,
                    help="resolution of the PNG; the PDF stays vector either way "
                         "(default: 600)")
@@ -148,6 +154,10 @@ def main(argv=None):
                     satdiv_vmax=a.satdiv_vmax, satdiv_step=a.satdiv_step)
     if a.dpi:
         params.dpi = a.dpi
+    if a.png_panel_mm:
+        params.png_panel_mm = a.png_panel_mm
+    if a.png_text_pt:
+        params.png_text_pt = a.png_text_pt
     if a.colour_main:
         params.colour_main = a.colour_main
     if a.colour_ext:
@@ -163,7 +173,7 @@ def main(argv=None):
         paths, st = quad(ctx, params, stem, lines=lines or None)
         if st["monomer"] is not None and not a.no_tree:
             tree_mod.draw(st["monomer"], stem, panel_mm=a.panel_mm,
-                          method=a.tree_method,
+                          method=a.tree_method, params=params,
                           title=f"{ctx.read_id}\n{st['monomer'].n_full} monomers, "
                                 f"{st['monomer'].n_groups} groups")
         if a.monomer_tsv and st["monomer"] is not None:

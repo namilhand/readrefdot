@@ -44,6 +44,9 @@ DPI = 600                       # 45 mm of dot plot is finer than 300 dpi resolv
 COL_LAB = "#444444"
 COL_AXLAB = "#000000"           # the two block labels under and beside the panel
 AXLAB_PT = 5
+BASE_PT = 5                     # the text size the millimetre geometry is drawn for
+PNG_PANEL_MM = 140.0            # the PNG is the same figure at poster size,
+PNG_TEXT_PT = 18.0              # with text this big
 DIAG_TOL = 3                    # bp slack when matching a run to an alignment diagonal
 MIN_BLOCK = 20                  # smallest aligned block that contributes an identity band
 MIN_OVERLAP = 0.5               # a run must lie this far inside a band to count as main
@@ -62,6 +65,40 @@ STYLE = {
     "savefig.dpi": 300, "savefig.bbox": "tight", "savefig.pad_inches": 0.02,
     "pdf.fonttype": 42, "ps.fonttype": 42,
 }
+
+
+class Sizes:
+    """Every size in one drawing of a figure.
+
+    The PDF is drawn at `--panel-mm` with BASE_PT text, the PNG at PNG_PANEL_MM with
+    PNG_TEXT_PT -- which is not the same zoom. Text is deliberately larger relative to the
+    panel there, because a PNG is looked at on a screen or a slide rather than placed at
+    figure size in a page layout.
+
+    `g` scales anything geometric: a length in mm or inches, a line width, a marker
+    diameter. `t` scales anything textual: a font size, a text offset, a pad."""
+
+    def __init__(self, panel_mm, text_pt=BASE_PT):
+        self.panel_mm = float(panel_mm)
+        self.g = self.panel_mm / PANEL_MM
+        self.t = float(text_pt) / BASE_PT
+
+    def rc(self):
+        """STYLE with its sizes scaled, for `mpl.rcParams.update`."""
+        rc = dict(STYLE)
+        for key in ("font.size", "axes.labelsize", "xtick.labelsize", "ytick.labelsize"):
+            rc[key] = STYLE[key] * self.t
+        for key in ("axes.linewidth", "xtick.major.width", "ytick.major.width",
+                    "xtick.major.size", "ytick.major.size"):
+            rc[key] = STYLE[key] * self.g
+        return rc
+
+
+def sizes_for(fmt, params, panel_mm=None):
+    """The sizes one output format is drawn at."""
+    if fmt == "png":
+        return Sizes(params.png_panel_mm, params.png_text_pt)
+    return Sizes(panel_mm if panel_mm else params.panel_mm)
 
 
 @dataclass
@@ -84,6 +121,8 @@ class Params:
     satdiv_cmap: str = "viridis"    # sequential: dark = alike, light = far apart
     satdiv_vmax: float = 16.0       # % divergence at the top of the scale
     satdiv_step: float = 1.0        # % divergence per colour band
+    png_panel_mm: float = PNG_PANEL_MM      # the PNG copy is drawn at this size
+    png_text_pt: float = PNG_TEXT_PT        # with text this big
 
     @property
     def gap(self):
@@ -223,14 +262,15 @@ def _ticks(ctx, R, Q):
     return rp + qp, rl + ql, len(rp)
 
 
-def _dot_size(panel_mm, n_units):
+def _dot_size(S, n_units):
     """Marker diameter in pt, from the space one unit actually gets. A 45 mm panel over
     ~220 monomers gives each 0.2 mm, so the dots are sized to sit side by side rather
     than to a fixed size that would overlap into a solid bar."""
-    return float(np.clip(panel_mm / max(n_units, 1) * 0.9 * 72 / 25.4, DOT_MIN, DOT_MAX))
+    return float(np.clip(S.panel_mm / max(n_units, 1) * 0.9 * 72 / 25.4,
+                         DOT_MIN * S.g, DOT_MAX * S.g))
 
 
-def _lollipops(ax, centres, cols, dot, vertical, tip):
+def _lollipops(ax, centres, cols, dot, vertical, tip, lw=0.2):
     """A stick from the panel edge out to a coloured circle centred on the stick's end.
 
     `tip` is the stick's length as a fraction of the strip."""
@@ -240,11 +280,11 @@ def _lollipops(ax, centres, cols, dot, vertical, tip):
     else:                                           # the strip along the right
         segs = [[(0.0, c), (tip, c)] for c in centres]
         pts = (np.full(centres.size, tip), centres)
-    ax.add_collection(LineCollection(segs, colors=cols, linewidths=0.2, zorder=1))
+    ax.add_collection(LineCollection(segs, colors=cols, linewidths=lw, zorder=1))
     ax.scatter(pts[0], pts[1], s=dot ** 2, c=cols, linewidths=0, zorder=2)
 
 
-def _strips(fig, geom, R, n, track, style, panel_mm):
+def _strips(fig, geom, R, n, track, style, S):
     """The monomer annotation: one mark per satellite unit, along the top and the right
     of the whole panel (so it labels the reference block and the read block in turn).
 
@@ -255,8 +295,8 @@ def _strips(fig, geom, R, n, track, style, panel_mm):
     widths = np.array([u.length for u in track.units], dtype=float)
     centres = starts + widths / 2
     cols = track.colours()
-    dot = _dot_size(panel_mm, len(track.units))
-    stem = STEM_MM * MM / strip                     # stick length, as a strip fraction
+    dot = _dot_size(S, len(track.units))
+    stem = STEM_MM * MM * S.g / strip               # stick length, as a strip fraction
 
     top = fig.add_axes([ml / fw, (mb + box + gap) / fh, box / fw, strip / fh])
     right = fig.add_axes([(ml + box + gap) / fw, mb / fh, strip / fw, box / fh])
@@ -266,18 +306,18 @@ def _strips(fig, geom, R, n, track, style, panel_mm):
         right.barh(centres, width=1.0, height=widths, color=cols, linewidth=0,
                    align="center")
     else:
-        _lollipops(top, centres, cols, dot, True, stem)
-        _lollipops(right, centres, cols, dot, False, stem)
+        _lollipops(top, centres, cols, dot, True, stem, 0.2 * S.g)
+        _lollipops(right, centres, cols, dot, False, stem, 0.2 * S.g)
     top.set_xlim(0, n); top.set_ylim(0, 1)
     right.set_xlim(0, 1); right.set_ylim(0, n)
-    top.axvline(R, color="black", lw=0.5, ymax=1.0 if style == "block" else stem)
-    right.axhline(R, color="black", lw=0.5, xmax=1.0 if style == "block" else stem)
+    top.axvline(R, color="black", lw=0.5 * S.g, ymax=1.0 if style == "block" else stem)
+    right.axhline(R, color="black", lw=0.5 * S.g, xmax=1.0 if style == "block" else stem)
 
     for a in (top, right):
         a.set_xticks([]); a.set_yticks([])
         for sp in a.spines.values():        # the panel's own frame is the strip's base
             sp.set_visible(style == "block")
-            sp.set_linewidth(0.25); sp.set_color("black")
+            sp.set_linewidth(0.25 * S.g); sp.set_color("black")
     return top
 
 
@@ -338,7 +378,7 @@ def insertion_sites(ctx, read_intervals):
     return sorted(set(out))
 
 
-def _annotation(ax, ctx, lines):
+def _annotation(ax, ctx, lines, S):
     """Black rectangles around the annotated intervals, in every quadrant that holds one.
 
     An annotated interval -- the donor region, the inserted segment, the deleted block --
@@ -363,7 +403,7 @@ def _annotation(ax, ctx, lines):
     rects = [(a, b, a, b) for a, b in ref] + [(a, b, a, b) for a, b in read]
     for x0, x1, y0, y1 in rects:
         ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
-                               edgecolor=COL_BOX, linewidth=BOX_LW, zorder=6))
+                               edgecolor=COL_BOX, linewidth=BOX_LW * S.g, zorder=6))
 
     drawn = {p for a, b in read for p in (a, b)}
     dels = [p for p in sorted({R + q for q in lines.read})
@@ -371,8 +411,8 @@ def _annotation(ax, ctx, lines):
     ins = insertion_sites(ctx, read)
     for marks, lo, hi in ((dels, R, R + Q), (ins, 0, R)):
         for m in marks:
-            ax.vlines(m, lo, hi, colors=COL_BOX, lw=BOX_LW, ls=":", zorder=6)
-            ax.hlines(m, lo, hi, colors=COL_BOX, lw=BOX_LW, ls=":", zorder=6)
+            ax.vlines(m, lo, hi, colors=COL_BOX, lw=BOX_LW * S.g, ls=":", zorder=6)
+            ax.hlines(m, lo, hi, colors=COL_BOX, lw=BOX_LW * S.g, ls=":", zorder=6)
     return len(rects), (len(ins), len(dels))
 
 
@@ -385,36 +425,33 @@ def block_labels(ctx, coords=False):
     return (f"{ref}  (Mb)", "Read (kb)") if coords else (ref, read)
 
 
-def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
-    """Draw the quad plot. Returns (paths, stats)."""
+def _quad_figure(ctx, params, lines, fwd, rev, n, track, S):
+    """One drawing of the quad plot, at scale `S`. Returns (fig, strip axes, counts)."""
     k = params.kmer
     R, Q = len(ctx.ref_seq), len(ctx.read_seq)
-    fwd, rev, n = _self_compare(ctx, params)
 
-    track = mono.annotate(ctx, period=params.monomer_period, cut=params.monomer_cut,
-                          consensus=params.monomer_consensus) if params.monomer else None
-
-    mpl.rcParams.update(STYLE)
-    box = params.panel_mm * MM
+    mpl.rcParams.update(S.rc())
+    box = S.panel_mm * MM
     style = params.monomer_style if params.monomer_style == "block" else "lollipop"
-    gap = STRIP_GAP_MM * MM
+    gap = STRIP_GAP_MM * MM * S.g
     if style == "block" or track is None:
-        strip = STRIP_BLOCK_MM * MM
+        strip = STRIP_BLOCK_MM * MM * S.g
     else:   # exactly what the marks need: the stick, plus the circle sitting on its end
-        strip = (STEM_MM * MM + _dot_size(params.panel_mm, len(track.units)) / 72 / 2
-                 + 0.05 * MM)
-    if track is None:
-        ml, mr, mb, mt = 0.46, 0.08, 0.46, 0.44    # inches of margin, room for ticks
+        strip = (STEM_MM * MM * S.g + _dot_size(S, len(track.units)) / 72 / 2
+                 + 0.05 * MM * S.g)
+    if track is None:      # inches of margin, room for ticks; they hold text, so they
+        ml, mr, mb, mt = (0.46 * S.t, 0.08 * S.t, 0.46 * S.t, 0.44 * S.t)   # follow it
     else:                                          # no tick labels, but strips instead
-        ml, mr, mb, mt = 0.17, 0.08 + strip + gap, 0.17, 0.44 + strip + gap
+        ml, mr = 0.17 * S.t, 0.08 * S.t + strip + gap
+        mb, mt = 0.17 * S.t, 0.44 * S.t + strip + gap
     fw, fh = box + ml + mr, box + mb + mt
     fig = plt.figure(figsize=(fw, fh))
     ax = fig.add_axes([ml / fw, mb / fh, box / fw, box / fh])
 
     if lines and params.annot_style in ("lines", "both"):
         for v in lines.marks(ctx):
-            ax.axvline(v, color=COL_LINE, lw=0.25, ls=":", zorder=1)
-            ax.axhline(v, color=COL_LINE, lw=0.25, ls=":", zorder=1)
+            ax.axvline(v, color=COL_LINE, lw=0.25 * S.g, ls=":", zorder=1)
+            ax.axhline(v, color=COL_LINE, lw=0.25 * S.g, ls=":", zorder=1)
 
     bands = identity_bands(ctx, R)
     a0, b0, a1, b1 = fwd
@@ -430,43 +467,42 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
         for sel, col, z in ((~is_main, params.colour_ext, 2),
                             (is_main, params.colour_main, 3)):
             if sel.any():
-                ax.add_collection(LineCollection(xy[sel], colors=col, linewidths=0.25,
-                                                 zorder=z,
+                ax.add_collection(LineCollection(xy[sel], colors=col,
+                                                 linewidths=0.25 * S.g, zorder=z,
                                                  rasterized=int(sel.sum()) > 20000))
     a0, b0, a1, b1 = rev
     if a0.size:
         xy = np.stack([np.column_stack([a0, b0 + k - 1]),
                        np.column_stack([a1 + k - 1, b1])], axis=1)
-        ax.add_collection(LineCollection(xy, colors=COL_REV, linewidths=0.25, zorder=4,
-                                         rasterized=xy.shape[0] > 20000))
+        ax.add_collection(LineCollection(xy, colors=COL_REV, linewidths=0.25 * S.g,
+                                         zorder=4, rasterized=xy.shape[0] > 20000))
 
     n_box, (n_ins, n_del) = 0, (0, 0)
     if lines and params.annot_style in ("box", "both"):
-        n_box, (n_ins, n_del) = _annotation(ax, ctx, lines)
+        n_box, (n_ins, n_del) = _annotation(ax, ctx, lines, S)
 
     ax.set_xlim(0, n); ax.set_ylim(0, n)
-    ax.axvline(R, color="black", lw=0.5, zorder=5)
-    ax.axhline(R, color="black", lw=0.5, zorder=5)
+    ax.axvline(R, color="black", lw=0.5 * S.g, zorder=5)
+    ax.axhline(R, color="black", lw=0.5 * S.g, zorder=5)
     for sp in ax.spines.values():
-        sp.set_visible(True); sp.set_linewidth(0.5); sp.set_color("black")
-    ax.tick_params(width=0.5, color="black")
+        sp.set_visible(True); sp.set_linewidth(0.5 * S.g); sp.set_color("black")
+    ax.tick_params(width=0.5 * S.g, color="black")
 
     strip_ax = None
     if track is not None:
         ax.set_xticks([]); ax.set_yticks([])
-        strip_ax = _strips(fig, (ml, mb, box, gap, strip, fw, fh), R, n, track,
-                           style, params.panel_mm)
+        strip_ax = _strips(fig, (ml, mb, box, gap, strip, fw, fh), R, n, track, style, S)
     else:
-        _coordinate_ticks(fig, ax, ctx, R, Q)
+        _coordinate_ticks(fig, ax, ctx, R, Q, S)
 
-    off_x, off_y = (-6, -8) if track is not None else (-17, -21)
+    off_x, off_y = ((-6, -8) if track is not None else (-17, -21))
     for pos, lab in zip((R / 2, R + Q / 2), block_labels(ctx, coords=track is None)):
         ax.annotate(lab, xy=(pos, 0), xycoords=("data", "axes fraction"),
-                    xytext=(0, off_x), textcoords="offset points",
-                    ha="center", va="top", fontsize=AXLAB_PT, color=COL_AXLAB)
+                    xytext=(0, off_x * S.t), textcoords="offset points",
+                    ha="center", va="top", fontsize=AXLAB_PT * S.t, color=COL_AXLAB)
         ax.annotate(lab, xy=(0, pos), xycoords=("axes fraction", "data"),
-                    xytext=(off_y, 0), textcoords="offset points", rotation=90,
-                    ha="right", va="center", fontsize=AXLAB_PT, color=COL_AXLAB)
+                    xytext=(off_y * S.t, 0), textcoords="offset points", rotation=90,
+                    ha="right", va="center", fontsize=AXLAB_PT * S.t, color=COL_AXLAB)
 
     title = (f"{ctx.read_id}\n{ctx.window}  (strand {ctx.strand})\n"
              f"ref {R:,} + read {Q:,} bp  ·  k={k}, min_seg={params.min_seg}")
@@ -482,19 +518,34 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
             (["the deletion junction in the read"] if n_del else [])
     if notes:
         title += "\ndotted: " + " and ".join(notes)
-    (strip_ax or ax).set_title(title, fontsize=5, linespacing=1.6)
+    (strip_ax or ax).set_title(title, fontsize=BASE_PT * S.t, linespacing=1.6)
+    return fig, (n_box, n_ins, n_del)
 
-    paths = []
+
+def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
+    """Draw the quad plot. Returns (paths, stats).
+
+    Each format is drawn at its own size: the PDF at `--panel-mm` for placing in a figure,
+    the PNG larger and with larger text for looking at on a screen. The k-mer comparison
+    and the monomer annotation are done once and shared."""
+    R, Q = len(ctx.ref_seq), len(ctx.read_seq)
+    fwd, rev, n = _self_compare(ctx, params)
+    track = mono.annotate(ctx, period=params.monomer_period, cut=params.monomer_cut,
+                          consensus=params.monomer_consensus) if params.monomer else None
+
+    paths, counts = [], (0, 0, 0)
     for fmt in formats:
+        S = sizes_for(fmt, params)
+        fig, counts = _quad_figure(ctx, params, lines, fwd, rev, n, track, S)
         path = f"{out_stem}.quad.{fmt}"
         fig.savefig(path, format=fmt, dpi=params.dpi)
+        plt.close(fig)
         paths.append(path)
-    plt.close(fig)
     return paths, dict(n_fwd=int(fwd[0].size), n_rev=int(rev[0].size), total_bp=n,
-                       monomer=track, n_boxes=n_box, n_marks=n_ins + n_del)
+                       monomer=track, n_boxes=counts[0], n_marks=counts[1] + counts[2])
 
 
-def _coordinate_ticks(fig, ax, ctx, R, Q):
+def _coordinate_ticks(fig, ax, ctx, R, Q, S):
     """The default decoration: genomic Mb on the reference block, kb on the read."""
     ticks, labels, n_ref = _ticks(ctx, R, Q)
     for axis in (ax.xaxis, ax.yaxis):
@@ -503,8 +554,8 @@ def _coordinate_ticks(fig, ax, ctx, R, Q):
     # The reference block's last label and the read block's first label sit on the same
     # coordinate (the divider); align them outward so they meet rather than overprint.
     ends = {0: "start", n_ref - 1: "end", n_ref: "start", len(ticks) - 1: "end"}
-    pad_r = ScaledTranslation(0.022, 0, fig.dpi_scale_trans)     # ~0.5 mm
-    pad_l = ScaledTranslation(-0.022, 0, fig.dpi_scale_trans)
+    pad_r = ScaledTranslation(0.022 * S.g, 0, fig.dpi_scale_trans)   # ~0.5 mm
+    pad_l = ScaledTranslation(-0.022 * S.g, 0, fig.dpi_scale_trans)
     for i, t in enumerate(ax.get_xticklabels()):
         if i in ends:
             start = ends[i] == "start"
