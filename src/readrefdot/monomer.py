@@ -488,9 +488,13 @@ def annotate(ctx, period=None, cut=DEFAULT_CUT, anchor_k=ANCHOR_K, sim_k=SIM_K,
             if first > b0:
                 units.append(Unit(block=name, start=b0, end=first, partial=True))
             for st, en, sat, ident in _scan_block(S, cons, b0, b1, period, first):
+                # A unit cut off by the edge of the block is truncated, not degenerate:
+                # the alignment squeezes the whole consensus into what is there and
+                # reports a low identity that means nothing.
+                edge = (st == b0 or en == b1) and (en - st) < period
                 units.append(Unit(block=name, start=st, end=en, satellite=sat,
-                                  identity=ident,
-                                  partial=(en - st) < MIN_FULL * period))
+                                  identity=0.0 if edge else ident,
+                                  partial=edge or (en - st) < MIN_FULL * period))
     else:
         anchors = _anchor_panel(S, period, anchor_k)
         votes, weights = _boundary_votes(anchors, period)
