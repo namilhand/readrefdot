@@ -141,8 +141,9 @@ Because the strips run the full concatenated axis, they annotate the reference b
 the read block in turn, and the two can be read against each other: an insertion of
 whole satellite units shows up as extra blocks repeating the reference's colour pattern.
 
-Nothing is taken from a consensus, a repeat library or the aligner. The units are found
-in the sequences themselves, in three steps:
+Nothing is taken from the aligner, and the *number, length and content* of the units come
+from the sequences themselves. A consensus is used for one thing only — to fix where a
+unit starts, which is the one property the sequence cannot settle on its own. Four steps:
 
 1. **Period.** Almost every k-mer in a tandem array recurs one unit later, so the
    histogram of distances between successive copies of the same 16-mer has a sharp mode
