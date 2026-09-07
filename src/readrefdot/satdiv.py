@@ -35,9 +35,8 @@ from matplotlib.colors import BoundaryNorm
 from matplotlib.patches import Rectangle
 
 from . import monomer as mono
-from .plot import MM, STEM_MM, STYLE, _dot_size, _lollipops
+from .plot import MM, PANEL_MM, STEM_MM, STYLE, _dot_size, _lollipops
 
-PANEL_MM = 50.0            # default plot box: 25 mm of reference + 25 mm of read
 GAP_MM = 0.4               # panel to strip
 CB_GAP_MM = 3.5            # strip to colour bar
 CB_W_MM = 1.6
@@ -45,7 +44,13 @@ CHUNK = 64                 # rows of the matrix computed at once
 DPI = 600                  # the raster output: a cell is well under a mm, so 300 is coarse
 BOX_LW = 0.3               # the box drawn around an annotated interval
 COL_BOX = "#000000"
-CMAP = "RdYlBu_r"          # diverging: blue = alike, red = far apart
+# Sequential, not diverging. Divergence has a true zero and no meaningful midpoint, so a
+# diverging map invents a centre and spends half its range on values the data never has --
+# which is what made these plots read as a wash of pale blue. viridis is perceptually
+# uniform, so equal steps of divergence look equally different (the bands ARE equal steps),
+# its lightness is monotone, so the ordering survives greyscale and any colour vision, and
+# its dark end is purple rather than black, which keeps the black annotation boxes visible.
+CMAP = "viridis"           # dark = alike, light = far apart
 VMAX = 20.0                # % divergence at the top of the scale; above it is OVER
 STEP = 1.0                 # % divergence per colour band
 COL_OVER = "#000000"       # a pair further apart than VMAX: off the scale, drawn black
@@ -54,7 +59,7 @@ COL_LAB = "#444444"
 
 @dataclass
 class Params:
-    panel_mm: float = PANEL_MM
+    panel_mm: float = PANEL_MM      # the whole box, as in the dot plot
     cmap: str = CMAP
     vmax: float = VMAX         # % divergence at the top of the scale
     step: float = STEP         # width of one colour band, in % divergence

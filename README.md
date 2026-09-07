@@ -349,9 +349,9 @@ four quadrants — reference × reference bottom-left, read × read top-right, a
 cross quadrants where every read monomer meets every reference one. Both blocks are cut
 into CEN178 monomers by exactly the tiling `--monomer` uses, and every monomer is compared
 with every other. Axes run **left to right and bottom to top**, so monomer 1 sits in the
-bottom-left corner. The box is 50 mm by default (`--panel-mm`) — 25 mm of reference and
-25 mm of read — and a cell is one monomer, so each block occupies its own share of the
-axis exactly as it does in the dot plot.
+bottom-left corner. The box is 45 mm by default (`--panel-mm`), the same as the dot plot's,
+and a cell is one monomer, so each block occupies its own share of the axis exactly as it
+does there.
 
 One matrix for both blocks is the point of the cross quadrants: a read monomer and a
 reference monomer are projected onto the same consensus columns, so a number there means
@@ -408,16 +408,39 @@ r = 0.94, and monomers the dendrogram puts in one group sit at 1.7% divergence a
 
 ### The colour scale
 
-**Stepped and fixed**: one colour band per 1% divergence (`--step`) from 0 to 20%
-(`--vmax`), from a diverging map (`--cmap`, default `RdYlBu_r`). A pair further apart than
-`--vmax` is off the scale and drawn **black**, marked by the arrow on the colour bar.
+**Sequential, stepped and fixed**: one band per 1% divergence (`--step`) from 0 to 20%
+(`--vmax`), from `viridis` by default (`--cmap`) — dark = alike, light = far apart. A pair
+further apart than `--vmax` is off the scale and drawn **black**, marked by the arrow on
+the colour bar.
 
-Fixed rather than fitted to the data, so the same colour means the same divergence in
-every plot and two reads can be compared by eye — and so that one wildly divergent monomer
-cannot stretch the range everything else is read on. On the ten manifest rows the medians
-run 3.4–8.4% and the largest single pair is 19.7%, so nothing is currently off scale and
-the plots use roughly the lower half of the bar; `--vmax 12` spreads them over the whole
-of it at the cost of comparability with a plot drawn at another setting.
+*Sequential, not diverging.* Divergence has a true zero and no meaningful midpoint, so a
+diverging map invents a centre and spends half its range on values the data never has —
+which is exactly why the earlier `RdYlBu_r` version read as a wash of pale blue. A
+perceptually uniform sequential map fixes three things at once: equal steps of divergence
+look equally different (and the bands *are* equal steps), lightness is monotone so the
+ordering survives greyscale and any colour vision, and — for `viridis` specifically — the
+dark end is purple rather than black, which keeps the black annotation boxes visible.
+`magma` and `inferno` look punchier but bottom out in black and swallow the boxes;
+`cividis` is the safest for colour-blind readers but has the least contrast.
+
+*Fixed, not fitted.* The same colour means the same divergence in every plot, so two reads
+can be compared by eye and one wildly divergent monomer cannot stretch the range everything
+else is read on.
+
+*Choosing `--vmax`.* It has to clear the most divergent array you want on the same scale,
+not the typical one. Across the ten manifest rows the medians run 3.4–8.4% and the largest
+single pair is 19.7%; the Ler centromeric arrays (`INS_35`, `INS_37`) are the divergent
+ones. Cutting the scale to fit the common case blacks those two out:
+
+| `--vmax` | pairs off scale, all ten | worst single plot |
+|---|---|---|
+| 12 | 3.31% | 19.5% (`INS_35`) |
+| 14 | 1.00% | 5.4% |
+| **16** | **0.15%** | **2.2%** |
+| 20 (default) | 0.00% | 0.00% |
+
+16 is the better trade if you want the extra contrast: it costs one pair in 700 and gives
+the bands 20% more of the ramp.
 
 Only whole satellite monomers are compared. A partial unit at the edge of the window is a
 fragment of a monomer, and a non-satellite stretch is not a monomer at all; either would
