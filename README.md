@@ -180,6 +180,12 @@ for ctx in load("sample.bam", "genome.fa", ["m84227_.../85266687/ccs"]):
 `readrefdot.kmer.compare(query, target, k)` is the engine on its own: two strings in,
 diagonal runs out — no BAM, no plot.
 
+## contrib
+
+`contrib/` holds helpers that assume a particular upstream data format and are not part
+of the tool — currently `fill_annotation.py`, which fills a manifest's annotation
+columns from CHARLA de-novo indel tables. See `contrib/README.md`.
+
 ## Requirements
 
 Python ≥3.8, `pysam`, `numpy`, `matplotlib`.
