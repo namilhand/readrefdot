@@ -150,29 +150,16 @@ def _index_at(units, pos):
 
 
 def _intervals(ctx, lines, block):
-    """Annotated positions, in the coordinates the units are tiled in, paired up.
+    """The annotated intervals for one block, in the coordinates the units are tiled in.
 
-    `ref-lines`/`read-lines` hold the same intervals readrefdot draws as guide lines: for
-    an INS the donor region on the reference, and in the read both the donor's copy and
-    the inserted segment; for a DEL the deleted block on the reference.
-
-    They arrive as a sorted list of DISTINCT endpoints, which is why the pairing depends
-    on the count. Two separate intervals contribute four values and pair off two by two.
-    But an insertion that sits immediately beside its donor -- a tandem duplication, the
-    common case -- shares an endpoint with it, so the two intervals arrive as three
-    values and have to be read as a chain. Pairing those two by two would draw the
-    insertion and silently drop the donor, which is exactly the box a tandem duplication
-    needs."""
+    `ref-lines`/`read-lines` hold the same intervals readrefdot draws: for an INS the
+    donor region on the reference, and in the read both the donor's copy and the inserted
+    segment; for a DEL the deleted block on the reference. `Lines.intervals` pairs the
+    endpoints (see `annotate.pair_up`) and clips each to its own block."""
     if not lines:
         return []
-    R = len(ctx.ref_seq)
-    if block == "ref":
-        pts = sorted({p - 1 - ctx.win_start for p in lines.ref})
-    else:
-        pts = sorted({R + p for p in lines.read})
-    pairs = (zip(pts[::2], pts[1::2]) if len(pts) % 2 == 0
-             else zip(pts[:-1], pts[1:]))          # odd count: the intervals touch
-    return [(a, b) for a, b in pairs if b > a]
+    ref, read = lines.intervals(ctx)
+    return ref if block == "ref" else read
 
 
 def _draw_boxes(ax, units, spans):

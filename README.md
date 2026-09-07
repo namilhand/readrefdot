@@ -37,7 +37,8 @@ including them would stretch the reference window for no gain.
 
 ## Output
 
-`<outdir>/<readid>.quad.png` and `.quad.pdf`, at 300 dpi with fonts embedded.
+`<outdir>/<readid>.quad.png` and `.quad.pdf`, at 600 dpi (`--dpi`) with fonts embedded;
+the PDF is vector regardless.
 Characters that cannot appear in a filename (`/` in particular) become `_`.
 With `--monomer`, also `<readid>.dendrogram.png` / `.dendrogram.pdf`.
 `satdivplot` writes `<readid>.satdiv.pdf` / `.satdiv.png` beside them.
@@ -131,6 +132,8 @@ the line stops that far short of the panel edge.
 | `--monomer-tsv` | off | also write `<name>.monomers.tsv`, one row per unit |
 | `--tree-method` | dendrogram | `dendrogram` (the grouping tree) or `nj` (a separate neighbour-joining tree) |
 | `--no-tree` | off | skip the monomer dendrogram |
+| `--annot-style` | box | how `--ref-lines`/`--read-lines` are drawn: `box`, `lines` or `both` |
+| `--dpi` | 600 | resolution of the PNG; the PDF is vector either way |
 
 ## Monomer annotation (`--monomer`)
 
@@ -316,6 +319,7 @@ readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redr
 | `colour_main`, `colour_ext` | | per-row colours |
 | `ref-lines`, `read-lines` | | annotation positions, comma-separated |
 | `monomer`, `monomer-period`, `monomer-cut`, `monomer-style`, `monomer-consensus` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.dendrogram.png`/`.pdf` |
+| `annot-style`, `dpi` | | how the annotated intervals are drawn, and the PNG resolution |
 | `satdiv-panel-mm`, `satdiv-cmap`, `satdiv-dpi` | | read by `satdivplot-batch` only (see below), ignored here |
 
 Column names accept either `-` or `_`. Blank cells mean "use the default".
@@ -432,12 +436,31 @@ be a spurious row, so both are left out of the matrix (and counted in the title)
 
 ```bash
 readrefdot --bam sample.bam --ref genome.fa --read "…/85266687/ccs" \
-    --ref-lines 6988767,6992861 --read-lines 6796,10891,14985
+    --ref-lines 6988767,6992861 --read-lines 6796,10891,10892,14987
 ```
 
-Draws dotted blue guide lines beneath the data. `--ref-lines` are absolute reference
-positions (1-based), `--read-lines` are read positions (0-based, in the orientation
-drawn). Both describe one read, so they cannot be combined with `--all`.
+`--ref-lines` are absolute reference positions (1-based), `--read-lines` are read
+positions (0-based, in the orientation drawn). They come in pairs and delimit **intervals**
+— for an INS the donor region on the reference and, in the read, both the donor's copy and
+the inserted segment; for a DEL the deleted block. Both describe one read, so they cannot
+be combined with `--all`. `contrib/fill_annotation.py` fills these columns from CHARLA's
+de-novo tables.
+
+An annotated interval is a stretch of sequence, and what a stretch of sequence produces in
+a dot plot is a **diagonal**. So by default (`--annot-style box`) each one is drawn as a
+**black box around that diagonal**:
+
+* the reference × reference quadrant gets a square on its diagonal for each reference
+  interval, and the read × read quadrant one for each read interval — a tandem duplication
+  is two squares touching corner to corner;
+* each cross quadrant gets the rectangle where a reference interval meets a read one, which
+  is where the read's copy of the donor sits against the original. On `INS_93` the two
+  rectangles stacked in the top-left quadrant are the same 4 kb of reference matching two
+  different stretches of the read: the duplication, stated as a picture.
+
+`--annot-style lines` restores the previous dotted blue guide lines at the interval ends,
+and `both` draws each. The same intervals are boxed by
+[satdivplot](#satdivplot--pairwise-monomer-divergence), on the diagonal of its heat maps.
 
 ## What a line means
 

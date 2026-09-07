@@ -92,10 +92,18 @@ def build_parser():
                    help="group monomers whose estimated identity is at least this")
     p.add_argument("--monomer-tsv", action="store_true",
                    help="also write <NAME>.monomers.tsv, one row per unit")
+    p.add_argument("--annot-style", choices=("box", "lines", "both"), default="box",
+                   help="how --ref-lines/--read-lines are drawn: a black box around each "
+                        "annotated interval, dotted guide lines at its ends, or both")
+    p.add_argument("--dpi", type=int, default=None,
+                   help="resolution of the PNG; the PDF stays vector either way "
+                        "(default: 600)")
     p.add_argument("--ref-lines", metavar="P,...",
-                   help="guide lines at these reference positions (1-based)")
+                   help="annotate the interval(s) between these reference "
+                        "positions (1-based)")
     p.add_argument("--read-lines", metavar="P,...",
-                   help="guide lines at these read positions (0-based)")
+                   help="annotate the interval(s) between these read "
+                        "positions (0-based)")
     return p
 
 
@@ -119,7 +127,10 @@ def main(argv=None):
                     panel_mm=a.panel_mm, monomer=a.monomer or a.monomer_tsv,
                     monomer_period=a.monomer_period, monomer_cut=a.monomer_cut,
                     monomer_style=a.monomer_style,
-                    monomer_consensus=read_consensus(a.monomer_consensus))
+                    monomer_consensus=read_consensus(a.monomer_consensus),
+                    annot_style=a.annot_style)
+    if a.dpi:
+        params.dpi = a.dpi
     if a.colour_main:
         params.colour_main = a.colour_main
     if a.colour_ext:

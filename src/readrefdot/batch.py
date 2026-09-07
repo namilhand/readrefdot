@@ -7,7 +7,8 @@ skipped, making the wrapper safe to re-run after adding rows or after a failure.
 Required columns  bam, readid, reference, outdir, suffix
 Optional columns  k, min-seg, merge-gap, panel-mm, colour_main, colour_ext,
                   ref-lines, read-lines, monomer, monomer-period, monomer-cut,
-                  monomer-style, monomer-consensus, satdiv-panel-mm, satdiv-cmap, satdiv-dpi
+                  monomer-style, monomer-consensus, annot-style, dpi,
+                  satdiv-panel-mm, satdiv-cmap, satdiv-dpi
                   (blank means "use the default"; '-' spellings also accepted with '_')
 
 `suffix` is the output file stem: a row writes <outdir>/<suffix>.quad.png and .pdf.
@@ -29,7 +30,7 @@ REQUIRED = ("bam", "readid", "reference", "outdir", "suffix")
 OPTIONAL = ("k", "min-seg", "merge-gap", "panel-mm", "colour_main", "colour_ext",
             "ref-lines", "read-lines", "monomer", "monomer-period", "monomer-cut",
             "monomer-style", "monomer-consensus", "tree-method",
-            "satdiv-panel-mm", "satdiv-cmap", "satdiv-dpi")
+            "annot-style", "dpi", "satdiv-panel-mm", "satdiv-cmap", "satdiv-dpi")
 FORMATS = ("png", "pdf")
 
 
@@ -102,6 +103,10 @@ def params_for(v):
         p.monomer_style = v["monomer-style"]
     if v["monomer-consensus"]:
         p.monomer_consensus = read_consensus(v["monomer-consensus"])
+    if v["annot-style"]:
+        p.annot_style = v["annot-style"]
+    if v["dpi"]:
+        p.dpi = int(v["dpi"])
     return p
 
 

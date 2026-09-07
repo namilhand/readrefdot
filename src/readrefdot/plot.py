@@ -19,6 +19,7 @@ import matplotlib as mpl
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
+from matplotlib.patches import Rectangle
 from matplotlib.transforms import ScaledTranslation
 
 from . import monomer as mono
@@ -37,6 +38,9 @@ COL_MAIN = "#000000"            # diagonals the aligner placed the read on
 COL_EXT = "#B2B2B2"             # grey70 - every other diagonal
 COL_REV = "#D55E00"             # vermillion - reverse-complement matches
 COL_LINE = "#0072B2"            # blue - annotation guide lines
+COL_BOX = "#000000"             # black - the box around an annotated interval
+BOX_LW = 0.5
+DPI = 600                       # 45 mm of dot plot is finer than 300 dpi resolves
 COL_LAB = "#444444"
 DIAG_TOL = 3                    # bp slack when matching a run to an alignment diagonal
 MIN_BLOCK = 20                  # smallest aligned block that contributes an identity band
@@ -71,6 +75,8 @@ class Params:
     monomer_cut: float = mono.DEFAULT_CUT   # identity at which units group together
     monomer_style: str = "lollipop"         # "lollipop" or "block"
     monomer_consensus: str = mono.CEN178    # phase reference; None = take it from the data
+    annot_style: str = "box"    # "box", "lines" or "both": how --ref/read-lines are drawn
+    dpi: int = DPI              # raster resolution; the PDF stays vector either way
 
     @property
     def gap(self):
@@ -269,6 +275,27 @@ def _strips(fig, geom, R, n, track, style, panel_mm):
     return top
 
 
+def _annotation_boxes(ax, ctx, lines):
+    """Black rectangles around the annotated intervals, in every quadrant that holds one.
+
+    An annotated interval -- the donor region, the inserted segment, the deleted block --
+    is a stretch of sequence, and what it produces in a dot plot is a diagonal. The box is
+    what that diagonal is FOR. Each self-comparison quadrant gets a square on its own
+    diagonal, and each cross quadrant gets the rectangle where a reference interval meets
+    a read one, which is where the read's copy of the donor sits against the original.
+
+    Returns the number drawn."""
+    ref, read = lines.intervals(ctx)
+    rects = [(a, b, a, b) for a, b in ref] + [(a, b, a, b) for a, b in read]
+    for a, b in ref:                                   # the two cross quadrants
+        for c, d in read:
+            rects += [(a, b, c, d), (c, d, a, b)]
+    for x0, x1, y0, y1 in rects:
+        ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
+                               edgecolor=COL_BOX, linewidth=BOX_LW, zorder=6))
+    return len(rects)
+
+
 def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
     """Draw the quad plot. Returns (paths, stats)."""
     k = params.kmer
@@ -295,7 +322,7 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
     fig = plt.figure(figsize=(fw, fh))
     ax = fig.add_axes([ml / fw, mb / fh, box / fw, box / fh])
 
-    if lines:
+    if lines and params.annot_style in ("lines", "both"):
         for v in lines.marks(ctx):
             ax.axvline(v, color=COL_LINE, lw=0.25, ls=":", zorder=1)
             ax.axhline(v, color=COL_LINE, lw=0.25, ls=":", zorder=1)
@@ -323,6 +350,10 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
                        np.column_stack([a1 + k - 1, b1])], axis=1)
         ax.add_collection(LineCollection(xy, colors=COL_REV, linewidths=0.25, zorder=4,
                                          rasterized=xy.shape[0] > 20000))
+
+    n_box = 0
+    if lines and params.annot_style in ("box", "both"):
+        n_box = _annotation_boxes(ax, ctx, lines)
 
     ax.set_xlim(0, n); ax.set_ylim(0, n)
     ax.axvline(R, color="black", lw=0.5, zorder=5)
@@ -357,16 +388,18 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
                   f"\nphase: {track.phase}"
                   + (f"  ·  {track.n_nonsatellite} non-satellite"
                      if track.n_nonsatellite else ""))
+    if n_box:
+        title += "\nblack box: annotated donor, inserted or deleted segment"
     (strip_ax or ax).set_title(title, fontsize=5, linespacing=1.6)
 
     paths = []
     for fmt in formats:
         path = f"{out_stem}.quad.{fmt}"
-        fig.savefig(path, format=fmt)
+        fig.savefig(path, format=fmt, dpi=params.dpi)
         paths.append(path)
     plt.close(fig)
     return paths, dict(n_fwd=int(fwd[0].size), n_rev=int(rev[0].size), total_bp=n,
-                       monomer=track)
+                       monomer=track, n_boxes=n_box)
 
 
 def _coordinate_ticks(fig, ax, ctx, R, Q):
