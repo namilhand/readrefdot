@@ -372,8 +372,9 @@ between the blocks.
 
 `--ref-lines` / `--read-lines` are boxed here as they are in the dot plot (see
 [Annotation](#annotation-optional)) but in **white** at 0.3 pt, since the heat map is dark:
-a square on the diagonal of each self quadrant, plus the rectangle where a reference
-interval meets a read one in each cross quadrant. The line dividing the two blocks is white
+a square on the diagonal of each self quadrant, and in each cross quadrant the read
+interval at the reference span the aligner gives it — a line at the insertion site when
+that span is a point. The line dividing the two blocks is white
 for the same reason. Box edges are interpolated inside the monomer they land in, so they
 sit on the base the annotation names rather than on the nearest monomer boundary. An
 interval outside the plotted window is dropped, exactly as the dot plot drops a guide line
@@ -498,10 +499,19 @@ a dot plot is a **diagonal**. So by default (`--annot-style box`) each one is dr
 * the reference × reference quadrant gets a square on its diagonal for each reference
   interval, and the read × read quadrant one for each read interval — a tandem duplication
   is two squares touching corner to corner;
-* each cross quadrant gets the rectangle where a reference interval meets a read one, which
-  is where the read's copy of the donor sits against the original. On `INS_93` the two
-  rectangles stacked in the top-left quadrant are the same 4 kb of reference matching two
-  different stretches of the read: the duplication, stated as a picture.
+* in each cross quadrant a read interval is placed at **the reference span the aligner
+  gives it**, read off the CIGAR. The copy of the donor that stayed aligned lands on the
+  donor region, so its rectangle sits on the diagonal. The inserted copy has no reference
+  span at all — it is a reference *point* — so it is drawn as a line at the insertion site,
+  spanning the inserted read interval: the vertical jump the alignment path makes there,
+  and its length is the size of the insertion.
+
+Pairing every reference interval with every read one instead — which is what this used to
+do — put the inserted copy's box out at the *donor's* coordinate. On a tandem duplication
+that is a box one insertion-length off the diagonal and easy to misread; on `INS_3`, whose
+donor is 7 kb from the insertion site, it floated far out in the quadrant with nothing under
+it. Which read interval is the insertion and which is the aligned copy is not in the
+annotation columns at all, and does not need to be: the alignment says so.
 
 **A read position with no segment to box gets a dotted cross-hair instead.** A deletion is
 the case that matters: its read side is a junction, not a segment, so the reference block

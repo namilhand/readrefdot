@@ -281,6 +281,45 @@ def _strips(fig, geom, R, n, track, style, panel_mm):
     return top
 
 
+def aligned_blocks(ctx):
+    """(read_start, read_end, ref_start) for every aligned block of the primary
+    alignment, in the coordinates the quad plot uses for each block."""
+    a = ctx.primary
+    out, q, r = [], 0, a.reference_start
+    for op, ln in (a.cigartuples or []):
+        if op in (0, 7, 8):
+            qs = _seq_x(q, a, ctx)
+            out.append((qs, qs + ln, r - ctx.win_start))
+            q += ln
+            r += ln
+        elif op == 1:
+            q += ln
+        elif op in (2, 3):
+            r += ln
+        elif op in (4, 5):
+            q += ln
+    return out
+
+
+def ref_at(blocks, q):
+    """The reference position the aligner gives read position `q`.
+
+    Inside an aligned block it is that block's own mapping. Inside an INSERTION it is the
+    insertion site -- the reference position the aligner was at when it took those bases
+    from the read -- so a read interval that lies wholly inside an insertion projects to a
+    single reference point, which is exactly what an insertion is on the reference."""
+    if not blocks:
+        return 0
+    prev = blocks[0][2]
+    for qs, qe, rs in blocks:
+        if q < qs:
+            return prev
+        if q < qe:
+            return rs + (q - qs)
+        prev = rs + (qe - qs)
+    return prev
+
+
 def _annotation(ax, ctx, lines):
     """Black rectangles around the annotated intervals, in every quadrant that holds one.
 
@@ -288,9 +327,14 @@ def _annotation(ax, ctx, lines):
     is a stretch of sequence, and what it produces in a dot plot is a diagonal. The box is
     what that diagonal is FOR.
 
-    Each self-comparison quadrant gets a square on its own diagonal, and each cross
-    quadrant the rectangle where a reference interval meets a read one -- which is where
-    the read's copy of the donor sits against the original.
+    Each self-comparison quadrant gets a square on its own diagonal. In the cross
+    quadrants a read interval is placed at THE REFERENCE SPAN THE ALIGNER GIVES IT, not
+    against the annotated reference interval: the copy of the donor that stayed aligned
+    lands on the donor region and its box sits on the diagonal, while the inserted copy
+    has no reference span at all and is drawn as a line at the insertion site -- the
+    vertical jump the alignment path makes there. Pairing every reference interval with
+    every read one instead put the inserted copy's box out at the donor's coordinate,
+    floating off the diagonal.
 
     A read position with no segment to box gets a dotted cross-hair instead. A deletion is
     the case that matters: its read side is a junction, not a segment, so the reference
@@ -303,9 +347,15 @@ def _annotation(ax, ctx, lines):
     R, Q = len(ctx.ref_seq), len(ctx.read_seq)
     ref, read = lines.intervals(ctx)
     rects = [(a, b, a, b) for a, b in ref] + [(a, b, a, b) for a, b in read]
-    for a, b in ref:                                   # the two cross quadrants
-        for c, d in read:
-            rects += [(a, b, c, d), (c, d, a, b)]
+    blocks = aligned_blocks(ctx)
+    for c, d in read:                                  # the two cross quadrants
+        x0, x1 = ref_at(blocks, c - R), ref_at(blocks, d - R)
+        if x1 - x0 >= 1:
+            rects += [(x0, x1, c, d), (c, d, x0, x1)]
+        else:                     # inserted: a reference point, not a reference span
+            for xs, ys in (((x0, x0), (c, d)), ((c, d), (x0, x0))):
+                ax.plot(xs, ys, color=COL_BOX, lw=BOX_LW, solid_capstyle="butt",
+                        zorder=6)
     for x0, x1, y0, y1 in rects:
         ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
                                edgecolor=COL_BOX, linewidth=BOX_LW, zorder=6))

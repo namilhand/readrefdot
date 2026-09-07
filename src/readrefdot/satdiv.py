@@ -38,7 +38,7 @@ from matplotlib.patches import Rectangle
 
 from . import monomer as mono
 from .plot import (AXLAB_PT, COL_AXLAB, MM, STEM_MM, STYLE, _dot_size,
-                   _lollipops, block_labels)
+                   _lollipops, aligned_blocks, block_labels, ref_at)
 
 GAP_MM = 0.0               # panel to strip: the sticks start at the edge of the panel
 CB_GAP_MM = 3.5            # strip to colour bar
@@ -156,12 +156,19 @@ def _index_at(units, pos):
 
 
 def _spans(ctx, lines, units, n_ref):
-    """The annotation in monomer coordinates: (reference spans, read spans, read marks).
+    """The annotation in monomer coordinates.
+
+    Returns (reference spans, read spans, cross rectangles, cross lines, read marks).
 
     `ref-lines`/`read-lines` hold the same intervals readrefdot draws: for an INS the
     donor region on the reference, and in the read both the donor's copy and the inserted
     segment; for a DEL the deleted block on the reference. `Lines.intervals` pairs the
     endpoints (see `annotate.pair_up`) and clips each to its own block.
+
+    In the cross quadrants a read interval is placed at THE REFERENCE SPAN THE ALIGNER
+    GIVES IT: the copy of the donor that stayed aligned lands on the donor region and its
+    rectangle sits on the diagonal, while the inserted copy has no reference span at all
+    and becomes a line at the insertion site.
 
     A read position that is not the edge of a drawn span comes back as a MARK. A deletion
     is the case that matters: its read side is a junction, not a segment, so it gets no
@@ -169,7 +176,7 @@ def _spans(ctx, lines, units, n_ref):
     lost -- the monomers either side of it are simply neighbours. The mark is the only
     thing that puts it on the plot."""
     if not lines or not units:
-        return [], [], []
+        return [], [], [], [], []
     ref_iv, read_iv = lines.intervals(ctx)
     ref_u, read_u = units[:n_ref], units[n_ref:]
     out, drawn = [], set()
@@ -186,29 +193,43 @@ def _spans(ctx, lines, units, n_ref):
         out.append(got)
 
     R = len(ctx.ref_seq)
+    blocks = aligned_blocks(ctx)
+    cross, lines_ = [], []
+    for a, b in read_iv:
+        if not read_u or b <= read_u[0].start or a >= read_u[-1].end:
+            continue
+        y0, y1 = _index_at(read_u, a) + n_ref, _index_at(read_u, b) + n_ref
+        if y1 - y0 < 0.5 or not ref_u:
+            continue
+        x0 = _index_at(ref_u, ref_at(blocks, a - R))
+        x1 = _index_at(ref_u, ref_at(blocks, b - R))
+        if x1 - x0 >= 0.5:
+            cross += [(x0, x1, y0, y1), (y0, y1, x0, x1)]
+        else:                     # inserted: a reference point, not a reference span
+            lines_ += [((x0, x0), (y0, y1)), ((y0, y1), (x0, x0))]
+
     marks = []
     for p in sorted({R + p for p in lines.read}) if read_u else []:
         if p in drawn or p <= read_u[0].start or p >= read_u[-1].end:
             continue
         marks.append(_index_at(read_u, p) + n_ref)
-    return out[0], out[1], marks
+    return out[0], out[1], cross, lines_, marks
 
 
-def _draw_boxes(ax, ref_spans, read_spans):
+def _draw_boxes(ax, ref_spans, read_spans, cross, cross_lines):
     """A box around each annotated interval, in every quadrant that holds one.
 
     An annotated interval -- the donor region, the inserted segment, the deleted block --
     is a run of monomers, and what a run of monomers produces here is a diagonal. The box
-    is what that diagonal is FOR. Each self quadrant gets a square on its own diagonal,
-    and each cross quadrant the rectangle where a reference interval meets a read one."""
-    rects = [(a, b, a, b) for a, b in ref_spans + read_spans]
-    for a, b in ref_spans:
-        for c, d in read_spans:
-            rects += [(a, b, c, d), (c, d, a, b)]
+    is what that diagonal is FOR. Each self quadrant gets a square on its own diagonal;
+    the cross quadrants get what `_spans` projected through the alignment."""
+    rects = [(a, b, a, b) for a, b in ref_spans + read_spans] + list(cross)
     for x0, x1, y0, y1 in rects:
         ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
                                edgecolor=COL_ANNOT, linewidth=BOX_LW, zorder=5))
-    return len(rects)
+    for xs, ys in cross_lines:
+        ax.plot(xs, ys, color=COL_ANNOT, lw=BOX_LW, solid_capstyle="butt", zorder=5)
+    return len(rects) + len(cross_lines)
 
 
 def _draw_marks(ax, marks):
@@ -303,8 +324,8 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     # which is both smaller and exactly the data.
     im = ax.imshow(D, cmap=cmap, norm=norm, extent=(0, n, 0, n), origin="lower",
                    interpolation="none", aspect="auto")
-    ref_spans, read_spans, marks = _spans(ctx, lines, units, n_ref)
-    n_box = _draw_boxes(ax, ref_spans, read_spans)
+    ref_spans, read_spans, cross, cross_lines, marks = _spans(ctx, lines, units, n_ref)
+    n_box = _draw_boxes(ax, ref_spans, read_spans, cross, cross_lines)
     n_mark = _draw_marks(ax, marks)
     ax.set_xlim(0, n); ax.set_ylim(0, n)
     ax.axvline(n_ref, color=COL_ANNOT, lw=0.5, zorder=4)
