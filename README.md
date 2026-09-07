@@ -116,6 +116,56 @@ the line stops that far short of the panel edge.
 | `--name` | read id | output file stem, giving `<name>.quad.png` / `.pdf`. One read only |
 | `--colour_main` | black | colour of the main diagonals (alignment diagonals, followed to their full extent) |
 | `--colour_ext` | grey70 | colour of every other diagonal |
+| `--monomer` | off | annotate satellite monomers instead of coordinates (below) |
+| `--monomer-period` | detect | satellite unit length in bp |
+| `--monomer-cut` | 0.95 | identity at which two monomers join the same group |
+| `--monomer-tsv` | off | also write `<name>.monomers.tsv`, one row per unit |
+
+## Monomer annotation (`--monomer`)
+
+For a centromeric read, genomic coordinates say little: both the read and the reference
+window are tandem arrays of the ~178 bp CEN178 (aTha178) satellite unit. `--monomer`
+replaces the coordinate axes with a strip of coloured blocks along the **top and the
+right of the whole panel** — one block per monomer, coloured by similarity group — so
+the axes say what the array is *made of*.
+
+```bash
+readrefdot --bam sample.bam --ref Col-0.fa --read "…/85266687/ccs" --monomer
+```
+
+Because the strips run the full concatenated axis, they annotate the reference block and
+the read block in turn, and the two can be read against each other: an insertion of
+whole satellite units shows up as extra blocks repeating the reference's colour pattern.
+
+Nothing is taken from a consensus, a repeat library or the aligner. The units are found
+in the sequences themselves, in three steps:
+
+1. **Period.** Almost every k-mer in a tandem array recurs one unit later, so the
+   histogram of distances between successive copies of the same 16-mer has a sharp mode
+   at the unit length. No mode ⇒ not an array ⇒ the plot falls back to coordinates.
+2. **Phase.** Every 16-mer that recurs at that spacing is a candidate marker of the same
+   point in successive units. Each is checked for a *consistent* offset from the best
+   one along the whole array (a k-mer that sits at a different place in different units
+   is not a phase marker and is dropped), and the survivors vote on where a unit starts.
+   Walking those votes one period at a time tiles the sequence: where a vote is missing
+   — the anchor was mutated away in that unit — the boundary is interpolated, so one
+   damaged unit costs phase accuracy there and not the tiling. Reference and read are
+   tiled separately but from the same anchor panel, so a boundary means the same thing
+   in both blocks.
+3. **Groups.** Units are compared by shared 8-mer content (a Mash-style identity
+   estimate — exact pairwise alignment would be more accurate and is not worth it, since
+   the numbers only have to separate satellite variants) and clustered by average
+   linkage, cut at `--monomer-cut`. Groups are colour-ordered by size, so the most
+   abundant variant is always the first palette colour. Partial units at the array edges
+   are left grey.
+
+Grouping is **per plot**: a colour identifies a variant within one figure and carries no
+meaning across figures. `--monomer-tsv` writes the units out — position, group, length,
+sequence — which is what to use when groups need to be compared between plots.
+
+The default cut of 0.95 is what separates CEN178 variants in these arrays; 0.90 merges
+almost everything into one group, and above 0.97 the groups start to split on individual
+substitutions. The title reports how many units, of what length, in how many groups.
 
 ## Batch — `readrefdot-batch`
 
@@ -136,6 +186,7 @@ readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redr
 | `k`, `min-seg`, `merge-gap`, `panel-mm` | | per-row overrides; blank = default |
 | `colour_main`, `colour_ext` | | per-row colours |
 | `ref-lines`, `read-lines` | | annotation positions, comma-separated |
+| `monomer`, `monomer-period`, `monomer-cut` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false` |
 
 Column names accept either `-` or `_`. Blank cells mean "use the default".
 

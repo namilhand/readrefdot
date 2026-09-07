@@ -7,6 +7,7 @@ import sys
 
 from . import __version__
 from .annotate import Lines
+from .monomer import DEFAULT_CUT, write_tsv
 from .plot import Params, quad
 from .read import ReadNotFound, iter_primary, load
 
@@ -50,6 +51,15 @@ def build_parser():
                         "(default: black)")
     p.add_argument("--colour_ext", "--colour-ext", default=None, metavar="COLOUR",
                    help="colour of every other diagonal (default: grey40)")
+    p.add_argument("--monomer", action="store_true",
+                   help="annotate satellite (CEN178) monomers along the top and right "
+                        "of the panel instead of genomic coordinates")
+    p.add_argument("--monomer-period", type=int, default=None, metavar="BP",
+                   help="satellite unit length (default: detect it from the sequence)")
+    p.add_argument("--monomer-cut", type=float, default=DEFAULT_CUT, metavar="F",
+                   help="group monomers whose estimated identity is at least this")
+    p.add_argument("--monomer-tsv", action="store_true",
+                   help="also write <NAME>.monomers.tsv, one row per unit")
     p.add_argument("--ref-lines", metavar="P,...",
                    help="guide lines at these reference positions (1-based)")
     p.add_argument("--read-lines", metavar="P,...",
@@ -74,7 +84,8 @@ def main(argv=None):
         sys.exit(f"no primary alignments in {a.bam}")
     os.makedirs(a.outdir, exist_ok=True)
     params = Params(kmer=a.kmer, min_seg=a.min_seg, merge_gap=a.merge_gap,
-                    panel_mm=a.panel_mm)
+                    panel_mm=a.panel_mm, monomer=a.monomer or a.monomer_tsv,
+                    monomer_period=a.monomer_period, monomer_cut=a.monomer_cut)
     if a.colour_main:
         params.colour_main = a.colour_main
     if a.colour_ext:
@@ -88,6 +99,11 @@ def main(argv=None):
             continue
         stem = os.path.join(a.outdir, a.name or safe_name(ctx.read_id))
         paths, st = quad(ctx, params, stem, lines=lines or None)
+        if a.monomer_tsv and st["monomer"] is not None:
+            write_tsv(st["monomer"], ctx, f"{stem}.monomers.tsv")
+        if params.monomer and st["monomer"] is None:
+            print(f"    note: {ctx.read_id} is not a tandem array; "
+                  f"drew coordinates instead", file=sys.stderr)
         print(f"[{i}/{len(read_ids)}] {ctx.read_id}  {ctx.window}  "
               f"ref {len(ctx.ref_seq):,} + read {ctx.read_len:,} bp  "
               f"{st['n_fwd']:,} fwd / {st['n_rev']:,} rev  -> {os.path.basename(paths[0])}")

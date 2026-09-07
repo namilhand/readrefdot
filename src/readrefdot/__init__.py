@@ -8,8 +8,10 @@
 __version__ = "0.1.0"
 
 from .annotate import Lines                              # noqa: F401
+from .monomer import MonomerTrack, Unit                  # noqa: F401
+from .monomer import annotate as annotate_monomers       # noqa: F401
 from .plot import Params, quad                           # noqa: F401
 from .read import ReadContext, ReadNotFound, load        # noqa: F401
 
 __all__ = ["load", "ReadContext", "ReadNotFound", "Lines", "Params", "quad",
-           "__version__"]
+           "annotate_monomers", "MonomerTrack", "Unit", "__version__"]

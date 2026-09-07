@@ -21,12 +21,15 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.transforms import ScaledTranslation
 
+from . import monomer as mono
 from .kmer import (build_index, filter_min_length, kmer_codes, match,
                    merge_segments, revcomp)
 
 MM = 1 / 25.4
 PANEL_MM = 45.0                 # default plot box, excluding title and labels
 TICK_STEP = 5000
+STRIP_MM = 1.5                  # thickness of a monomer annotation strip
+STRIP_GAP_MM = 0.7              # gap between the panel and its strip
 
 COL_MAIN = "#000000"            # diagonals the aligner placed the read on
 COL_EXT = "#B2B2B2"             # grey70 - every other diagonal
@@ -61,6 +64,9 @@ class Params:
     colour_main: str = COL_MAIN
     colour_ext: str = COL_EXT
     panel_mm: float = PANEL_MM
+    monomer: bool = False       # annotate satellite monomers instead of coordinates
+    monomer_period: int = None  # unit length in bp (default: detect it)
+    monomer_cut: float = mono.DEFAULT_CUT   # identity at which units group together
 
     @property
     def gap(self):
@@ -200,15 +206,52 @@ def _ticks(ctx, R, Q):
     return rp + qp, rl + ql, len(rp)
 
 
+def _strips(fig, geom, R, n, track):
+    """The monomer annotation: a coloured block per unit, along the top and the right
+    of the whole panel (so it labels the reference block and the read block in turn).
+
+    Colour = similarity group, so a repeating colour pattern in the strip is the array's
+    higher-order structure, and the two blocks can be read against each other."""
+    ml, mb, box, gap, strip, fw, fh = geom
+    starts = np.array([u.start for u in track.units], dtype=float)
+    widths = np.array([u.length for u in track.units], dtype=float)
+    centres = starts + widths / 2
+    cols = track.colours()
+
+    top = fig.add_axes([ml / fw, (mb + box + gap) / fh, box / fw, strip / fh])
+    top.bar(centres, height=1.0, width=widths, color=cols, linewidth=0, align="center")
+    top.set_xlim(0, n); top.set_ylim(0, 1)
+    top.axvline(R, color="black", lw=0.5)
+
+    right = fig.add_axes([(ml + box + gap) / fw, mb / fh, strip / fw, box / fh])
+    right.barh(centres, width=1.0, height=widths, color=cols, linewidth=0,
+               align="center")
+    right.set_xlim(0, 1); right.set_ylim(0, n)
+    right.axhline(R, color="black", lw=0.5)
+
+    for a in (top, right):
+        a.set_xticks([]); a.set_yticks([])
+        for sp in a.spines.values():
+            sp.set_visible(True); sp.set_linewidth(0.25); sp.set_color("black")
+    return top
+
+
 def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
     """Draw the quad plot. Returns (paths, stats)."""
     k = params.kmer
     R, Q = len(ctx.ref_seq), len(ctx.read_seq)
     fwd, rev, n = _self_compare(ctx, params)
 
+    track = mono.annotate(ctx, period=params.monomer_period,
+                          cut=params.monomer_cut) if params.monomer else None
+
     mpl.rcParams.update(STYLE)
     box = params.panel_mm * MM
-    ml, mr, mb, mt = 0.46, 0.08, 0.46, 0.44        # inches of margin
+    strip, gap = STRIP_MM * MM, STRIP_GAP_MM * MM
+    if track is None:
+        ml, mr, mb, mt = 0.46, 0.08, 0.46, 0.44    # inches of margin, room for ticks
+    else:                                          # no tick labels, but strips instead
+        ml, mr, mb, mt = 0.17, 0.08 + strip + gap, 0.17, 0.44 + strip + gap
     fw, fh = box + ml + mr, box + mb + mt
     fig = plt.figure(figsize=(fw, fh))
     ax = fig.add_axes([ml / fw, mb / fh, box / fw, box / fh])
@@ -249,6 +292,42 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
         sp.set_visible(True); sp.set_linewidth(0.5); sp.set_color("black")
     ax.tick_params(width=0.5, color="black")
 
+    strip_ax = None
+    if track is not None:
+        ax.set_xticks([]); ax.set_yticks([])
+        strip_ax = _strips(fig, (ml, mb, box, gap, strip, fw, fh), R, n, track)
+    else:
+        _coordinate_ticks(fig, ax, ctx, R, Q)
+
+    off_x, off_y = (-6, -8) if track is not None else (-17, -21)
+    for pos, lab in ((R / 2, ctx.chrom if track is not None else f"{ctx.chrom} (Mb)"),
+                     (R + Q / 2, "read" if track is not None else "read (kb)")):
+        ax.annotate(lab, xy=(pos, 0), xycoords=("data", "axes fraction"),
+                    xytext=(0, off_x), textcoords="offset points",
+                    ha="center", va="top", fontsize=5.5, color=COL_LAB)
+        ax.annotate(lab, xy=(0, pos), xycoords=("axes fraction", "data"),
+                    xytext=(off_y, 0), textcoords="offset points", rotation=90,
+                    ha="right", va="center", fontsize=5.5, color=COL_LAB)
+
+    title = (f"{ctx.read_id}\n{ctx.window}  (strand {ctx.strand})\n"
+             f"ref {R:,} + read {Q:,} bp  ·  k={k}, min_seg={params.min_seg}")
+    if track is not None:                          # its own line: the title sets the
+        title += (f"\n{track.n_full} monomers of {track.period} bp, "   # figure width
+                  f"{track.n_groups} groups at {int(params.monomer_cut * 100)}% identity")
+    (strip_ax or ax).set_title(title, fontsize=5, linespacing=1.6)
+
+    paths = []
+    for fmt in formats:
+        path = f"{out_stem}.quad.{fmt}"
+        fig.savefig(path, format=fmt)
+        paths.append(path)
+    plt.close(fig)
+    return paths, dict(n_fwd=int(fwd[0].size), n_rev=int(rev[0].size), total_bp=n,
+                       monomer=track)
+
+
+def _coordinate_ticks(fig, ax, ctx, R, Q):
+    """The default decoration: genomic Mb on the reference block, kb on the read."""
     ticks, labels, n_ref = _ticks(ctx, R, Q)
     for axis in (ax.xaxis, ax.yaxis):
         axis.set_major_locator(mpl.ticker.FixedLocator(ticks))
@@ -266,23 +345,3 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
     for i, t in enumerate(ax.get_yticklabels()):
         if i in ends:
             t.set_verticalalignment("bottom" if ends[i] == "start" else "top")
-
-    for pos, lab in ((R / 2, f"{ctx.chrom} (Mb)"), (R + Q / 2, "read (kb)")):
-        ax.annotate(lab, xy=(pos, 0), xycoords=("data", "axes fraction"),
-                    xytext=(0, -17), textcoords="offset points",
-                    ha="center", va="top", fontsize=5.5, color=COL_LAB)
-        ax.annotate(lab, xy=(0, pos), xycoords=("axes fraction", "data"),
-                    xytext=(-21, 0), textcoords="offset points", rotation=90,
-                    ha="right", va="center", fontsize=5.5, color=COL_LAB)
-
-    ax.set_title(f"{ctx.read_id}\n{ctx.window}  (strand {ctx.strand})\n"
-                 f"ref {R:,} + read {Q:,} bp  ·  k={k}, min_seg={params.min_seg}",
-                 fontsize=5, linespacing=1.6)
-
-    paths = []
-    for fmt in formats:
-        path = f"{out_stem}.quad.{fmt}"
-        fig.savefig(path, format=fmt)
-        paths.append(path)
-    plt.close(fig)
-    return paths, dict(n_fwd=int(fwd[0].size), n_rev=int(rev[0].size), total_bp=n)

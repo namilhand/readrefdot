@@ -6,7 +6,7 @@ skipped, making the wrapper safe to re-run after adding rows or after a failure.
 
 Required columns  bam, readid, reference, outdir, suffix
 Optional columns  k, min-seg, merge-gap, panel-mm, colour_main, colour_ext,
-                  ref-lines, read-lines
+                  ref-lines, read-lines, monomer, monomer-period, monomer-cut
                   (blank means "use the default"; '-' spellings also accepted with '_')
 
 `suffix` is the output file stem: a row writes <outdir>/<suffix>.quad.png and .pdf.
@@ -24,7 +24,7 @@ from .read import ReadNotFound, load
 
 REQUIRED = ("bam", "readid", "reference", "outdir", "suffix")
 OPTIONAL = ("k", "min-seg", "merge-gap", "panel-mm", "colour_main", "colour_ext",
-            "ref-lines", "read-lines")
+            "ref-lines", "read-lines", "monomer", "monomer-period", "monomer-cut")
 FORMATS = ("png", "pdf")
 
 
@@ -58,7 +58,7 @@ def read_manifest(path):
         for c in ("bam", "reference"):
             if not os.path.exists(vals[c]):
                 problems.append(f"row {i} ({vals['suffix']}): {c} not found: {vals[c]}")
-        for c in ("k", "min-seg", "merge-gap"):
+        for c in ("k", "min-seg", "merge-gap", "monomer-period"):
             if vals[c] is not None:
                 try:
                     int(vals[c])
@@ -87,6 +87,12 @@ def params_for(v):
         p.colour_main = v["colour_main"]
     if v["colour_ext"]:
         p.colour_ext = v["colour_ext"]
+    if v["monomer"] and v["monomer"].lower() not in ("0", "no", "false", "n"):
+        p.monomer = True
+    if v["monomer-period"]:
+        p.monomer_period = int(v["monomer-period"])
+    if v["monomer-cut"]:
+        p.monomer_cut = float(v["monomer-cut"])
     return p
 
 
