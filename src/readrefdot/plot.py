@@ -279,7 +279,7 @@ def _strips(fig, geom, R, n, track, style, panel_mm):
     return top
 
 
-def _annotation_boxes(ax, ctx, lines):
+def _annotation(ax, ctx, lines):
     """Black rectangles around the annotated intervals, in every quadrant that holds one.
 
     An annotated interval -- the donor region, the inserted segment, the deleted block --
@@ -291,13 +291,28 @@ def _annotation_boxes(ax, ctx, lines):
     (reference, read) interval pair, and on an INS that is four more boxes saying what the
     two diagonal ones already say.
 
-    Returns the number drawn."""
+    A read position with no segment to box gets a dotted cross-hair instead. A deletion is
+    the case that matters: its read side is a junction, not a segment, so the reference
+    block shows the deleted stretch in a box while the read block has nothing to mark --
+    only a step in a diagonal, which is exactly what is hard to find. Drawing the lines
+    across the whole panel carries the junction into the reference block, where the box
+    says what is missing there.
+
+    Returns (boxes, cross-hairs)."""
+    R, Q = len(ctx.ref_seq), len(ctx.read_seq)
     ref, read = lines.intervals(ctx)
     rects = [(a, b, a, b) for a, b in ref] + [(a, b, a, b) for a, b in read]
     for x0, x1, y0, y1 in rects:
         ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
                                edgecolor=COL_BOX, linewidth=BOX_LW, zorder=6))
-    return len(rects)
+
+    drawn = {p for a, b in read for p in (a, b)}
+    marks = [p for p in sorted({R + q for q in lines.read})
+             if p not in drawn and R <= p <= R + Q]
+    for m in marks:
+        ax.axvline(m, color=COL_BOX, lw=BOX_LW, ls=":", zorder=6)
+        ax.axhline(m, color=COL_BOX, lw=BOX_LW, ls=":", zorder=6)
+    return len(rects), len(marks)
 
 
 def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
@@ -355,9 +370,9 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
         ax.add_collection(LineCollection(xy, colors=COL_REV, linewidths=0.25, zorder=4,
                                          rasterized=xy.shape[0] > 20000))
 
-    n_box = 0
+    n_box = n_mark = 0
     if lines and params.annot_style in ("box", "both"):
-        n_box = _annotation_boxes(ax, ctx, lines)
+        n_box, n_mark = _annotation(ax, ctx, lines)
 
     ax.set_xlim(0, n); ax.set_ylim(0, n)
     ax.axvline(R, color="black", lw=0.5, zorder=5)
@@ -394,6 +409,8 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
                      if track.n_nonsatellite else ""))
     if n_box:
         title += "\nbox: annotated donor, inserted or deleted segment"
+    if n_mark:
+        title += "\ndotted: the deletion junction in the read"
     (strip_ax or ax).set_title(title, fontsize=5, linespacing=1.6)
 
     paths = []
@@ -403,7 +420,7 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
         paths.append(path)
     plt.close(fig)
     return paths, dict(n_fwd=int(fwd[0].size), n_rev=int(rev[0].size), total_bp=n,
-                       monomer=track, n_boxes=n_box)
+                       monomer=track, n_boxes=n_box, n_marks=n_mark)
 
 
 def _coordinate_ticks(fig, ax, ctx, R, Q):

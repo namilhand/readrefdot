@@ -488,6 +488,14 @@ a dot plot is a **diagonal**. So by default (`--annot-style box`) each one is dr
 Only those two quadrants. A cross quadrant would take a rectangle per (reference, read)
 pair, and on an INS that is four more boxes saying what the two diagonal ones already say.
 
+**A read position with no segment to box gets a dotted cross-hair instead.** A deletion is
+the case that matters: its read side is a junction, not a segment, so the reference block
+shows the deleted stretch in a box while the read block has nothing to mark — only a step
+in a diagonal, which is exactly what is hard to find. The lines run across the whole panel,
+so the junction carries into the reference block and lands on the box that says what is
+missing there. On the ten manifest rows the two DEL rows get one cross-hair each and the
+eight INS rows get none, their read positions all being box edges already.
+
 Boxes are drawn in blue (`#0073b2`) at 0.3 pt. `--annot-style lines` restores the previous
 dotted blue guide lines at the interval ends, and `both` draws each. The
 [divergence plot](#the-divergence-plot---satdiv) boxes the same intervals in white, and
