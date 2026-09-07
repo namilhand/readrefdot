@@ -205,6 +205,47 @@ def _consensus_votes(seq, cons, k=CONS_K):
     return best
 
 
+def _tile_from_votes(votes, weights, b0, b1, period, min_weight=3):
+    """Tile a block by USING the votes as the boundaries, not by walking past them.
+
+    Every unit has its own votes, so the boundaries are already there; walking one period
+    at a time and only snapping to a vote within a quarter-period throws that away. Worse,
+    it cannot recover from an indel: after an insertion of L bp the votes downstream sit L
+    off the walk's targets, and if L mod period is outside the snap window the walk never
+    finds a vote again and the whole rest of the block is placed blind and out of phase.
+
+    Reading the votes directly makes an indel local: the unit that contains it comes out
+    long (or short), and the next unit starts where its own votes say it does."""
+    sel = (votes >= b0) & (votes < b1) & (weights >= min_weight)
+    v, w = votes[sel], weights[sel]
+    if v.size < 3:
+        return None
+    # suppress votes that sit far too close together to be separate units
+    keep, taken = [], []
+    for i in np.argsort(-w):
+        if all(abs(int(v[i]) - t) >= period / 2 for t in taken):
+            taken.append(int(v[i]))
+            keep.append(int(v[i]))
+    edges = sorted(keep)
+    out = []
+    for a, b in zip(edges[:-1], edges[1:]):
+        out.append(a)
+        m = max(1, int(round((b - a) / period)))
+        for j in range(1, m):                       # spread missing boundaries evenly
+            out.append(a + int(round((b - a) * j / m)))
+    out.append(edges[-1])
+    c = edges[0] - period                           # extend to the block edges
+    while c > b0:
+        out.append(c)
+        c -= period
+    c = edges[-1] + period
+    while c < b1:
+        out.append(c)
+        c += period
+    bounds = sorted(set([b0] + [x for x in out if b0 < x < b1] + [b1]))
+    return [(s, e) for s, e in zip(bounds[:-1], bounds[1:]) if e > s]
+
+
 def _tile_block(votes, weights, b0, b1, period):
     """Walk the votes into a continuous tiling of [b0, b1).
 
@@ -340,7 +381,10 @@ def annotate(ctx, period=None, cut=DEFAULT_CUT, anchor_k=ANCHOR_K, sim_k=SIM_K,
 
     units = []
     for name, b0, b1 in blocks:
-        for s, e in _tile_block(votes, weights, b0, b1, period):
+        tiles = _tile_from_votes(votes, weights, b0, b1, period)
+        if tiles is None:                          # too few votes to lead: walk instead
+            tiles = _tile_block(votes, weights, b0, b1, period)
+        for s, e in tiles:
             units.append(Unit(block=name, start=s, end=e,
                               partial=(e - s) < MIN_FULL * period))
 
