@@ -173,10 +173,18 @@ in the sequences themselves, in three steps:
    unit starts. **No single marker survives in every unit**: the best one covers 86–97% of
    them. The panel as a whole does — on real reads every unit contains at least one marker,
    median 43–53 of them, and 98–99% of boundaries land on a vote backed by dozens of
-   agreeing markers. Walking those votes one period at a time tiles the sequence; the
-   remaining ~1% of boundaries are placed by stepping one period, never more than one in a
-   row, so nothing drifts. Reference and read are tiled separately but from the same anchor
+   agreeing markers. Reference and read are tiled separately but from the same anchor
    panel, so a boundary means the same thing in both blocks.
+
+   **The votes place the boundaries; gaps are filled, not walked.** Every unit carries its
+   own votes, so boundaries are read straight off them, and a gap of about *m* periods gets
+   *m*−1 boundaries spread evenly across it (~1% of boundaries, never more than one in a
+   row). An earlier version walked one period at a time and snapped to a vote only within a
+   quarter period, which could not survive an indel: after an insertion of L bp every
+   downstream vote sits L off the walk's targets, and when `L mod 178` fell outside the snap
+   window (45–133 bp) the walk never met a vote again and placed the whole rest of the block
+   blind and out of phase. Reading the votes directly keeps an indel local — the unit
+   containing it comes out long, and the next unit starts where its own votes say.
 4. **Groups.** Units are compared by shared 8-mer content (a Mash-style identity
    estimate — exact pairwise alignment would be more accurate and is not worth it, since
    the numbers only have to separate satellite variants) and clustered by average
