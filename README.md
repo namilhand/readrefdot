@@ -135,7 +135,7 @@ the line stops that far short of the panel edge.
 | `--satdiv` | off | also draw the monomer divergence plot (below) |
 | `--satdiv-panel-mm` | `--panel-mm` | size of its plot box |
 | `--satdiv-cmap` | viridis | its colormap; sequential, dark = alike |
-| `--satdiv-vmax` | 20 | % divergence at the top of its scale; above it is black |
+| `--satdiv-vmax` | 16 | % divergence at the top of its scale; above it is black |
 | `--satdiv-step` | 1 | % divergence per colour band |
 | `--matrix-tsv` | off | with `--satdiv`, also write `<name>.satdiv.tsv` |
 | `--dpi` | 600 | resolution of the PNG; the PDF is vector either way |
@@ -434,7 +434,7 @@ r = 0.94, and monomers the dendrogram puts in one group sit at 1.7% divergence a
 ### The colour scale
 
 **Sequential, stepped and fixed**: one band per 1% divergence (`--satdiv-step`) from 0 to
-20% (`--satdiv-vmax`), from `viridis` by default (`--satdiv-cmap`) — dark = alike, light =
+16% (`--satdiv-vmax`), from `viridis` by default (`--satdiv-cmap`) — dark = alike, light =
 far apart. A pair
 further apart than `--satdiv-vmax` is off the scale and drawn **black**, marked by the
 arrow on the colour bar.
@@ -462,11 +462,12 @@ ones. Cutting the scale to fit the common case blacks those two out:
 |---|---|---|
 | 12 | 3.31% | 19.5% (`INS_35`) |
 | 14 | 1.00% | 5.4% |
-| **16** | **0.15%** | **2.2%** |
-| 20 (default) | 0.00% | 0.00% |
+| **16 (default)** | **0.15%** | **2.2%** |
+| 20 | 0.00% | 0.00% |
 
-16 is the better trade if you want the extra contrast: it costs one pair in 700 and gives
-the bands 20% more of the ramp.
+16 is the default: it costs one pair in 700 — eight of the ten rows have none off scale at
+all, and only the two Ler arrays do — and gives the bands 20% more of the ramp. `--satdiv-vmax 20`
+puts everything on scale at the cost of that contrast.
 
 Only whole satellite monomers are compared. A partial unit at the edge of the window is a
 fragment of a monomer, and a non-satellite stretch is not a monomer at all; either would
@@ -509,6 +510,13 @@ eight INS rows get none, their read positions all being box edges already.
 Boxes are drawn in blue (`#0073b2`) at 0.3 pt. `--annot-style lines` restores the previous
 dotted blue guide lines at the interval ends, and `both` draws each. The [divergence plot](#the-divergence-plot---satdiv) boxes the same intervals the same
 way, in white.
+
+## Typography
+
+Everything is Arial (falling back to Helvetica, then DejaVu Sans). The two block labels on
+each axis are 5 pt black: the reference window as `Chr4:6,981,972-6,999,418` and the read
+as `read (21,543 bp)`, on the dot plot and the divergence plot alike. The dendrogram's
+y-axis is titled `Distance` at 6 pt. Titles are 5 pt, the colour bar 4.5 pt.
 
 ## What a line means
 

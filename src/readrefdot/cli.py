@@ -100,7 +100,7 @@ def build_parser():
                    help="size of the divergence plot box (default: --panel-mm)")
     p.add_argument("--satdiv-cmap", default="viridis",
                    help="colormap for divergence; sequential, dark = alike")
-    p.add_argument("--satdiv-vmax", type=float, default=20.0, metavar="PCT",
+    p.add_argument("--satdiv-vmax", type=float, default=16.0, metavar="PCT",
                    help="%% divergence at the top of the scale; a pair further apart "
                         "than this is off the scale and drawn black")
     p.add_argument("--satdiv-step", type=float, default=1.0, metavar="PCT",

@@ -42,6 +42,8 @@ COL_BOX = "#0073b2"             # blue - the box around an annotated interval
 BOX_LW = 0.3
 DPI = 600                       # 45 mm of dot plot is finer than 300 dpi resolves
 COL_LAB = "#444444"
+COL_AXLAB = "#000000"           # the two block labels under and beside the panel
+AXLAB_PT = 5
 DIAG_TOL = 3                    # bp slack when matching a run to an alignment diagonal
 MIN_BLOCK = 20                  # smallest aligned block that contributes an identity band
 MIN_OVERLAP = 0.5               # a run must lie this far inside a band to count as main
@@ -49,7 +51,7 @@ EXTEND_GAP = 200                # bp: bands grow along their diagonal through ru
 
 STYLE = {
     "font.family": "sans-serif",
-    "font.sans-serif": ["Helvetica", "Arial", "DejaVu Sans"],
+    "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
     "font.size": 7, "axes.labelsize": 7,
     "xtick.labelsize": 5, "ytick.labelsize": 5,
     "axes.linewidth": 0.5,
@@ -80,7 +82,7 @@ class Params:
     satdiv: bool = False        # also draw the monomer divergence plot (satdiv.draw)
     satdiv_panel_mm: float = None   # its plot box; None = the same as this one
     satdiv_cmap: str = "viridis"    # sequential: dark = alike, light = far apart
-    satdiv_vmax: float = 20.0       # % divergence at the top of the scale
+    satdiv_vmax: float = 16.0       # % divergence at the top of the scale
     satdiv_step: float = 1.0        # % divergence per colour band
 
     @property
@@ -317,6 +319,15 @@ def _annotation(ax, ctx, lines):
     return len(rects), len(marks)
 
 
+def block_labels(ctx, coords=False):
+    """What the two halves of each axis are called: the reference window by its
+    coordinates, the read by its length. `coords` keeps the unit of the tick labels,
+    which only the coordinate decoration draws."""
+    ref = f"{ctx.chrom}:{ctx.win_start + 1:,}-{ctx.win_end:,}"
+    read = f"read ({len(ctx.read_seq):,} bp)"
+    return (f"{ref}  (Mb)", "read (kb)") if coords else (ref, read)
+
+
 def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
     """Draw the quad plot. Returns (paths, stats)."""
     k = params.kmer
@@ -392,14 +403,13 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
         _coordinate_ticks(fig, ax, ctx, R, Q)
 
     off_x, off_y = (-6, -8) if track is not None else (-17, -21)
-    for pos, lab in ((R / 2, ctx.chrom if track is not None else f"{ctx.chrom} (Mb)"),
-                     (R + Q / 2, "read" if track is not None else "read (kb)")):
+    for pos, lab in zip((R / 2, R + Q / 2), block_labels(ctx, coords=track is None)):
         ax.annotate(lab, xy=(pos, 0), xycoords=("data", "axes fraction"),
                     xytext=(0, off_x), textcoords="offset points",
-                    ha="center", va="top", fontsize=5.5, color=COL_LAB)
+                    ha="center", va="top", fontsize=AXLAB_PT, color=COL_AXLAB)
         ax.annotate(lab, xy=(0, pos), xycoords=("axes fraction", "data"),
                     xytext=(off_y, 0), textcoords="offset points", rotation=90,
-                    ha="right", va="center", fontsize=5.5, color=COL_LAB)
+                    ha="right", va="center", fontsize=AXLAB_PT, color=COL_AXLAB)
 
     title = (f"{ctx.read_id}\n{ctx.window}  (strand {ctx.strand})\n"
              f"ref {R:,} + read {Q:,} bp  ·  k={k}, min_seg={params.min_seg}")

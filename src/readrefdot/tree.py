@@ -193,7 +193,7 @@ def draw_dendrogram(track, out_stem, panel_mm=45.0, formats=("png", "pdf"), titl
     ax.set_xlim(-0.5, n - 0.5)
     ax.set_ylim(0, top * 1.06)
     ax.set_xticks([])
-    ax.set_ylabel("distance", fontsize=5.5, color="#444444", labelpad=2)
+    ax.set_ylabel("Distance", fontsize=6, color="#000000", labelpad=2)
     ax.tick_params(axis="y", labelsize=5, width=0.5, color="black", length=2)
     ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(4))
     for name, sp in ax.spines.items():

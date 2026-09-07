@@ -37,7 +37,8 @@ from matplotlib.colors import BoundaryNorm
 from matplotlib.patches import Rectangle
 
 from . import monomer as mono
-from .plot import MM, STEM_MM, STYLE, _dot_size, _lollipops
+from .plot import (AXLAB_PT, COL_AXLAB, MM, STEM_MM, STYLE, _dot_size,
+                   _lollipops, block_labels)
 
 GAP_MM = 0.0               # panel to strip: the sticks start at the edge of the panel
 CB_GAP_MM = 3.5            # strip to colour bar
@@ -315,19 +316,19 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     strip_ax = _strips(fig, (ml, mb, box, gap, strip, fw, fh), units, n_ref, n,
                        panel_mm)
 
-    for pos, lab in ((n_ref / 2, ctx.chrom), (n_ref + (n - n_ref) / 2, "read")):
+    for pos, lab in zip((n_ref / 2, n_ref + (n - n_ref) / 2), block_labels(ctx)):
         ax.annotate(lab, xy=(pos, 0), xycoords=("data", "axes fraction"),
                     xytext=(0, -6), textcoords="offset points",
-                    ha="center", va="top", fontsize=5.5, color=COL_LAB)
+                    ha="center", va="top", fontsize=AXLAB_PT, color=COL_AXLAB)
         ax.annotate(lab, xy=(0, pos), xycoords=("axes fraction", "data"),
                     xytext=(-8, 0), textcoords="offset points", rotation=90,
-                    ha="right", va="center", fontsize=5.5, color=COL_LAB)
+                    ha="right", va="center", fontsize=AXLAB_PT, color=COL_AXLAB)
 
     cax = fig.add_axes([(ml + box + gap + strip + cb_gap) / fw, mb / fh, cb_w / fw,
                         box / fh])
+    tick = next(t for t in (1, 2, 4, 5, 10, 20, 50) if params.satdiv_vmax / t <= 6)
     cb = fig.colorbar(im, cax=cax, extend="max",
-                      ticks=np.arange(0, params.satdiv_vmax + 1,
-                                      max(1, params.satdiv_vmax // 5)))
+                      ticks=np.arange(0, params.satdiv_vmax + tick / 2, tick))
     cb.outline.set_linewidth(0.4)
     cax.tick_params(width=0.4, length=1.6, labelsize=4.5, pad=1.2)
     cax.set_ylabel("monomer-pair divergence (%)", fontsize=5, color=COL_LAB, labelpad=2)
