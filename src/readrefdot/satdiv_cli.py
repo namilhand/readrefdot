@@ -4,8 +4,9 @@
     satdivplot-batch manifest.tsv
 
 The manifest is the same file readrefdot-batch takes; the columns it uses are
-bam, readid, reference, outdir, suffix, monomer-period, monomer-cut, monomer-consensus,
-plus satdiv-panel-mm and satdiv-cmap for this plot's own settings.
+bam, readid, reference, outdir, suffix, ref-lines, read-lines, monomer-period,
+monomer-cut, monomer-consensus, plus satdiv-panel-mm, satdiv-cmap and satdiv-dpi for this
+plot's own settings.
 """
 
 import argparse
@@ -15,6 +16,7 @@ from collections import OrderedDict
 
 from . import __version__
 from . import satdiv
+from .annotate import Lines
 from .batch import read_manifest
 from .cli import read_consensus, safe_name
 from .read import ReadNotFound, iter_primary, load
@@ -44,19 +46,21 @@ def _add_common(p):
                    help="repeat consensus that fixes where a unit starts, and the "
                         "columns divergence is measured in "
                         "(default: the published CEN178 monomer)")
+    p.add_argument("--dpi", type=int, default=satdiv.DPI,
+                   help="resolution of the PNG; the PDF stays vector either way")
     p.add_argument("--matrix-tsv", action="store_true",
                    help="also write <NAME>.satdiv.{ref,read}.tsv, the matrices themselves")
 
 
 def _params(a):
     return satdiv.Params(panel_mm=a.panel_mm, cmap=a.cmap, vmin=a.vmin, vmax=a.vmax,
-                         center=a.center,
+                         center=a.center, dpi=a.dpi,
                          monomer_period=a.monomer_period, monomer_cut=a.monomer_cut,
                          monomer_consensus=read_consensus(a.monomer_consensus))
 
 
-def _draw(ctx, params, stem, matrix_tsv=False):
-    paths, st = satdiv.draw(ctx, params, stem, formats=FORMATS)
+def _draw(ctx, params, stem, matrix_tsv=False, lines=None):
+    paths, st = satdiv.draw(ctx, params, stem, lines=lines, formats=FORMATS)
     if matrix_tsv:
         for name in ("ref", "read"):
             units = [u for u in st["monomer"].units
@@ -80,8 +84,17 @@ def main(argv=None):
     p.add_argument("--outdir", default=".", help="directory for the output files")
     p.add_argument("--name", metavar="NAME",
                    help="output file stem (default: the read id)")
+    p.add_argument("--ref-lines", metavar="P,...",
+                   help="box the interval(s) between these reference positions "
+                        "(1-based; the donor region for an INS)")
+    p.add_argument("--read-lines", metavar="P,...",
+                   help="box the interval(s) between these read positions "
+                        "(0-based; the donor copy and the inserted segment)")
     _add_common(p)
     a = p.parse_args(argv)
+    lines = Lines.parse(a.ref_lines, a.read_lines)
+    if lines and (a.all or len(a.read) > 1):
+        sys.exit("--ref-lines/--read-lines describe one read; give a single --read")
     if a.name and (a.all or len(a.read) > 1):
         sys.exit("--name gives one file stem; use it with a single --read")
 
@@ -99,7 +112,7 @@ def main(argv=None):
             continue
         stem = os.path.join(a.outdir, a.name or safe_name(ctx.read_id))
         try:
-            paths, st = _draw(ctx, params, stem, a.matrix_tsv)
+            paths, st = _draw(ctx, params, stem, a.matrix_tsv, lines or None)
         except Exception as e:
             print(f"[{i}/{len(read_ids)}] FAILED {ctx.read_id}: {e}", file=sys.stderr)
             n_fail += 1
@@ -121,6 +134,8 @@ def _params_for(v):
         p.panel_mm = float(v["satdiv-panel-mm"])
     if v["satdiv-cmap"]:
         p.cmap = v["satdiv-cmap"]
+    if v["satdiv-dpi"]:
+        p.dpi = int(v["satdiv-dpi"])
     if v["monomer-period"]:
         p.monomer_period = int(v["monomer-period"])
     if v["monomer-cut"]:
@@ -198,7 +213,9 @@ def batch_main(argv=None):
                 stem, _ = _outputs(v)
                 os.makedirs(v["outdir"], exist_ok=True)
                 try:
-                    paths, st = _draw(ctx, _params_for(v), stem, a.matrix_tsv)
+                    lines = Lines.parse(v["ref-lines"], v["read-lines"])
+                    paths, st = _draw(ctx, _params_for(v), stem, a.matrix_tsv,
+                                      lines or None)
                     print(f"[{done}/{len(todo)}] {v['suffix']}  {ctx.window}  "
                           f"ref {st['n_ref']} + read {st['n_read']} monomers  "
                           f"-> {os.path.basename(paths[0])}")

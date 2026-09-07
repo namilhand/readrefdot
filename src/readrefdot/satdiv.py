@@ -26,6 +26,7 @@ import numpy as np
 import matplotlib as mpl
 mpl.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 
 from . import monomer as mono
 from .plot import MM, STEM_MM, STYLE, _dot_size, _lollipops
@@ -36,6 +37,8 @@ INTER_MM = 5.0             # between the reference group and the read group
 CB_GAP_MM = 3.5            # strip to colour bar
 CB_W_MM = 1.6
 CHUNK = 64                 # rows of the matrix computed at once
+DPI = 600                  # the raster output: 25 mm holds ~120 cells, so 300 is coarse
+BOX_LW = 0.5               # the black square drawn around an annotated interval
 CMAP = "RdYlBu_r"          # diverging: blue = alike, red = far apart
 LO_PCT, HI_PCT = 2.0, 98.0  # percentiles of the off-diagonal that set the colour range
 COL_LAB = "#444444"
@@ -48,6 +51,7 @@ class Params:
     vmin: float = None         # % divergence at the blue end
     vmax: float = None         # % divergence at the red end
     center: float = None       # % divergence the map is neutral at (default: the median)
+    dpi: int = DPI             # raster resolution; the PDF stays vector either way
     monomer_period: int = None
     monomer_cut: float = mono.DEFAULT_CUT
     monomer_consensus: str = mono.CEN178
@@ -128,6 +132,58 @@ def block_matrix(S, track, block, cons):
     return keep, [_colour(u) for u in keep], divergence(np.array(P, dtype=np.uint8))
 
 
+def _index_at(units, pos):
+    """Fractional monomer index of a base position: unit 3 half way through is 2.5.
+
+    Interpolating inside the unit rather than snapping to it puts the edge of a drawn box
+    on the base the annotation names, not on the nearest monomer boundary."""
+    starts = np.array([u.start for u in units])
+    ends = np.array([u.end for u in units])
+    if pos <= starts[0]:
+        return 0.0
+    if pos >= ends[-1]:
+        return float(len(units))
+    i = int(np.searchsorted(starts, pos, side="right") - 1)
+    if pos >= ends[i]:                  # inside a stretch no monomer covers
+        return float(i + 1)
+    return i + (pos - starts[i]) / (ends[i] - starts[i])
+
+
+def _intervals(ctx, lines, block):
+    """Annotated positions, in the coordinates the units are tiled in, paired up.
+
+    `ref-lines`/`read-lines` hold the same intervals readrefdot draws as guide lines: for
+    an INS the donor region on the reference, and in the read both the donor's copy and
+    the inserted segment; for a DEL the deleted block on the reference. They arrive as a
+    sorted flat list, so consecutive pairs are the intervals."""
+    if not lines:
+        return []
+    R = len(ctx.ref_seq)
+    if block == "ref":
+        pts = sorted(p - 1 - ctx.win_start for p in lines.ref)
+    else:
+        pts = sorted(R + p for p in lines.read)
+    return [(a, b) for a, b in zip(pts[::2], pts[1::2]) if b > a]
+
+
+def _draw_boxes(ax, units, spans):
+    """A black square around each annotated interval, on the diagonal.
+
+    A run of monomers that recur elsewhere in the array draws a diagonal line; the square
+    is what that line is FOR -- the donor segment, or the inserted copy of it."""
+    n = 0
+    for a, b in spans:
+        if b <= units[0].start or a >= units[-1].end:
+            continue                    # the interval is outside this block's monomers
+        i, j = _index_at(units, a), _index_at(units, b)
+        if j - i < 0.5:                 # a point, not a segment (a deletion junction)
+            continue
+        ax.add_patch(Rectangle((i, i), j - i, j - i, fill=False, edgecolor="black",
+                               linewidth=BOX_LW, zorder=5, clip_on=True))
+        n += 1
+    return n
+
+
 def _limits(mats, p):
     """One colour range for both panels, so the two are directly comparable.
 
@@ -151,7 +207,8 @@ def _limits(mats, p):
     return (lo, hi) if hi > lo else (lo, lo + 1.0)
 
 
-def _panel(fig, geom, D, cols, cmap, lo, hi, label, span, dot, stem):
+def _panel(fig, geom, D, cols, cmap, lo, hi, label, span, dot, stem,
+           units=None, spans=()):
     """One heat map with its monomer lollipops along the top and the right.
 
     The axes run left to right and BOTTOM TO TOP, so monomer 1 is at the bottom-left
@@ -168,6 +225,7 @@ def _panel(fig, geom, D, cols, cmap, lo, hi, label, span, dot, stem):
     if n:
         im = ax.imshow(D, cmap=cmap, vmin=lo, vmax=hi, extent=(0, n, 0, n),
                        origin="lower", interpolation="nearest", aspect="auto")
+    n_box = _draw_boxes(ax, units, spans) if (n and spans) else 0
     ax.set_xlim(0, span); ax.set_ylim(0, span)
     ax.set_xticks([]); ax.set_yticks([])
     for sp in ax.spines.values():
@@ -189,10 +247,10 @@ def _panel(fig, geom, D, cols, cmap, lo, hi, label, span, dot, stem):
     ax.annotate(label, xy=(0.5, 0), xycoords="axes fraction", xytext=(0, -5),
                 textcoords="offset points", ha="center", va="top", fontsize=5.5,
                 color=COL_LAB)
-    return ax, im
+    return ax, im, n_box
 
 
-def draw(ctx, params, out_stem, formats=("pdf", "png")):
+def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     """Draw the two-panel divergence figure. Returns (paths, stats)."""
     S = ctx.ref_seq + ctx.read_seq
     track = mono.annotate(ctx, period=params.monomer_period, cut=params.monomer_cut,
@@ -227,13 +285,15 @@ def draw(ctx, params, out_stem, formats=("pdf", "png")):
     fig = plt.figure(figsize=(fw, fh))
 
     labels = {"ref": f"reference  {ctx.chrom}", "read": "read"}
-    im = None
+    im, n_box = None, 0
     for i, (name, units, cols, D) in enumerate(panels):
         x0 = ml + i * (group + inter)
-        _, got = _panel(fig, (x0, mb, box, gap, strip, fw, fh), D, cols, params.cmap,
-                        lo, hi, f"{labels[name]}  ({D.shape[0]} monomers)", span,
-                        dot, stem_mm / strip)
+        _, got, nb = _panel(fig, (x0, mb, box, gap, strip, fw, fh), D, cols, params.cmap,
+                            lo, hi, f"{labels[name]}  ({D.shape[0]} monomers)", span,
+                            dot, stem_mm / strip, units,
+                            _intervals(ctx, lines, name))
         im = im or got
+        n_box += nb
 
     cax = fig.add_axes([(ml + 2 * group + inter + cb_gap) / fw, mb / fh, cb_w / fw,
                         box / fh])
@@ -248,17 +308,19 @@ def draw(ctx, params, out_stem, formats=("pdf", "png")):
              f"{track.n_groups} groups at {int(params.monomer_cut * 100)}% identity"
              f"\nphase: {track.phase}"
              + (f"  ·  {track.n_nonsatellite} non-satellite" if track.n_nonsatellite
-                else ""))
+                else "")
+             + ("\nblack box: annotated donor, inserted or deleted segment" if n_box else ""))
     fig.text(ml / fw, 1 - 0.012, title, ha="left", va="top", fontsize=5,
              linespacing=1.6)
 
     paths = []
     for fmt in formats:
         path = f"{out_stem}.satdiv.{fmt}"
-        fig.savefig(path, format=fmt)
+        fig.savefig(path, format=fmt, dpi=params.dpi)
         paths.append(path)
     plt.close(fig)
     return paths, dict(n_ref=n_ref, n_read=n_read, vmin=lo, vmax=hi, monomer=track,
+                       n_boxes=n_box,
                        matrices={n: D for n, _, _, D in panels})
 
 

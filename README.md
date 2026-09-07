@@ -316,7 +316,7 @@ readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redr
 | `colour_main`, `colour_ext` | | per-row colours |
 | `ref-lines`, `read-lines` | | annotation positions, comma-separated |
 | `monomer`, `monomer-period`, `monomer-cut`, `monomer-style`, `monomer-consensus` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.dendrogram.png`/`.pdf` |
-| `satdiv-panel-mm`, `satdiv-cmap` | | read by `satdivplot-batch` only (see below), ignored here |
+| `satdiv-panel-mm`, `satdiv-cmap`, `satdiv-dpi` | | read by `satdivplot-batch` only (see below), ignored here |
 
 Column names accept either `-` or `_`. Blank cells mean "use the default".
 
@@ -359,9 +359,24 @@ shorter block leaves the far end of its box **blank** rather than stretching to 
 and that blank is exactly the length the other block has gained: an insertion of 23
 monomers in the read shows as 23 empty slots at the top and right of the reference panel.
 
+### Boxed intervals
+
+`--ref-lines` / `--read-lines` (the same manifest columns `readrefdot` draws as guide
+lines) are drawn here as **black squares on the diagonal**. A run of monomers that recurs
+elsewhere in the array draws a diagonal line; the square says what that line is *for*.
+
+For an INS row the reference panel boxes the **donor region** and the read panel boxes
+**both the donor's copy and the inserted segment** — on `INS_93` the two read boxes are
+23 monomers each and touch corner to corner, which is the duplication read straight off
+the plot. For a DEL row the reference panel boxes the **deleted block** and the read gets
+nothing, since the deletion is a junction and not a segment. Box edges are interpolated
+inside the monomer they land in, so they sit on the base the annotation names rather than
+on the nearest monomer boundary.
+
 Output is `<stem>.satdiv.pdf` and `.png`; `--matrix-tsv` also writes
 `<stem>.satdiv.ref.tsv` and `.read.tsv`, the matrices themselves with each monomer's
-position and group.
+position and group. The PNG is written at 600 dpi (`--dpi`) — 25 mm holding 120 cells is
+coarse at 300 — and the PDF is vector, with the heat map embedded one sample per cell.
 
 ### What you are looking at
 
