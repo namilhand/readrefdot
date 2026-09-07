@@ -320,7 +320,7 @@ readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redr
 | `ref-lines`, `read-lines` | | annotation positions, comma-separated |
 | `monomer`, `monomer-period`, `monomer-cut`, `monomer-style`, `monomer-consensus` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.dendrogram.png`/`.pdf` |
 | `annot-style`, `dpi` | | how the annotated intervals are drawn, and the PNG resolution |
-| `satdiv-panel-mm`, `satdiv-cmap`, `satdiv-dpi` | | read by `satdivplot-batch` only (see below), ignored here |
+| `satdiv-panel-mm`, `satdiv-cmap`, `satdiv-dpi` | | read by `satdivplot-batch` only (see above), ignored here |
 
 Column names accept either `-` or `_`. Blank cells mean "use the default".
 
@@ -344,61 +344,50 @@ satdivplot --bam sample.bam --ref genome.fa --read "m84227_.../85266687/ccs"
 satdivplot-batch manifest.tsv --outdir out/satdiv    # the same manifest
 ```
 
-One page, two panels: the **reference window on the left, the read on the right**, each a
-25 mm square by default (`--panel-mm`). Each panel is a self-comparison — the block is cut
-into CEN178 monomers by exactly the tiling `--monomer` uses, every monomer is compared
-with every other, and the n × n matrix of percent divergence is drawn as a heat map with
-the monomers in array order on both axes. Both axes run **left to right and bottom to
-top**, so monomer 1 sits in the bottom-left corner and the array reads outwards; the main
-diagonal climbs from bottom-left to top-right.
+**The layout is the quad plot's**: `[reference | read]` on both axes, so one matrix fills
+four quadrants — reference × reference bottom-left, read × read top-right, and the two
+cross quadrants where every read monomer meets every reference one. Both blocks are cut
+into CEN178 monomers by exactly the tiling `--monomer` uses, and every monomer is compared
+with every other. Axes run **left to right and bottom to top**, so monomer 1 sits in the
+bottom-left corner. The box is 50 mm by default (`--panel-mm`) — 25 mm of reference and
+25 mm of read — and a cell is one monomer, so each block occupies its own share of the
+axis exactly as it does in the dot plot.
+
+One matrix for both blocks is the point of the cross quadrants: a read monomer and a
+reference monomer are projected onto the same consensus columns, so a number there means
+exactly what the numbers in the two self quadrants mean.
 
 The lollipops along the top and the right are the same similarity groups the dot plot
-annotates, drawn the same way and from the same dendrogram: both blocks are tiled and
-grouped **together**, so a colour means the same monomer family in the reference panel and
-in the read panel.
-
-**The two boxes hold the same number of monomer slots**, `max(n_ref, n_read)`, so a cell
-is the same size in each and the panels can be laid against one another directly. The
-shorter block leaves the far end of its box **blank** rather than stretching to fill it,
-and that blank is exactly the length the other block has gained: an insertion of 23
-monomers in the read shows as 23 empty slots at the top and right of the reference panel.
+annotates, drawn the same way and from the same dendrogram, with the same black divider
+between the blocks.
 
 ### Boxed intervals
 
-`--ref-lines` / `--read-lines` (the same manifest columns `readrefdot` draws as guide
-lines) are drawn here as **black squares on the diagonal**. A run of monomers that recurs
-elsewhere in the array draws a diagonal line; the square says what that line is *for*.
-
-For an INS row the reference panel boxes the **donor region** and the read panel boxes
-**both the donor's copy and the inserted segment** — on `INS_93` the two read boxes are
-23 monomers each and touch corner to corner, which is the duplication read straight off
-the plot. For a DEL row the reference panel boxes the **deleted block** and the read gets
-nothing, since the deletion is a junction and not a segment. Box edges are interpolated
-inside the monomer they land in, so they sit on the base the annotation names rather than
-on the nearest monomer boundary.
-
-The columns hold a sorted list of **distinct** endpoints, so how they pair depends on the
-count: four values are two separate intervals, but a tandem duplication — the insertion
-sitting immediately beside its donor — shares an endpoint and arrives as **three**, which
-have to be read as a chain. Six of the ten manifest rows are that case, and in every one
-of them the monomers inside the two boxes are near-identical at the duplication's own
-offset (0.0–1.3% divergence against array medians of 3.9–8.4%). An interval that falls
+`--ref-lines` / `--read-lines` are boxed here exactly as in the dot plot (see
+[Annotation](#annotation-optional)), in **black** at 0.3 pt: a square on the diagonal of
+each self quadrant, and the rectangle where a reference interval meets a read one in each
+cross quadrant. Box edges are interpolated inside the monomer they land in, so they sit on
+the base the annotation names rather than on the nearest monomer boundary. An interval
 outside the plotted window is dropped, exactly as `readrefdot` drops a guide line for it.
 
-Output is `<stem>.satdiv.pdf` and `.png`; `--matrix-tsv` also writes
-`<stem>.satdiv.ref.tsv` and `.read.tsv`, the matrices themselves with each monomer's
-position and group. The PNG is written at 600 dpi (`--dpi`) — 25 mm holding 120 cells is
-coarse at 300 — and the PDF is vector, with the heat map embedded one sample per cell.
+Six of the ten manifest rows are tandem duplications, and in every one the monomers inside
+the two read boxes are near-identical at the duplication's own offset (0.0–1.3% divergence
+against array medians of 3.4–8.4%).
+
+Output is `<stem>.satdiv.pdf` and `.png`; `--matrix-tsv` also writes `<stem>.satdiv.tsv`,
+the whole matrix with each monomer's block, position and group. The PNG is written at
+600 dpi (`--dpi`) and the PDF is vector, with the heat map embedded one sample per cell.
 
 ### What you are looking at
 
 In an array built from a repeating cassette of *m* monomers, monomer *i* and monomer
 *i + m* are near-identical while their neighbours are not. That puts a line of
 low-divergence cells **parallel to the diagonal, m cells off it**, and repeats it at every
-multiple of *m* — the ladder of blue lines is the HOR period, read straight off the axis.
-A monomer that has drifted from the rest of the array shows as a red cross: one whole row
-and its matching column. A block of blue cells off the diagonal is a segment of the array
-duplicated elsewhere in it.
+multiple of *m* — the ladder of dark lines is the HOR period, read straight off the axis.
+A monomer that has drifted from the rest of the array shows as a pale cross: one whole row
+and its matching column. A block of dark cells off the diagonal is a segment of the array
+duplicated elsewhere in it — and in a cross quadrant, a segment the read shares with the
+reference.
 
 ### How divergence is measured
 
@@ -419,14 +408,16 @@ r = 0.94, and monomers the dendrogram puts in one group sit at 1.7% divergence a
 
 ### The colour scale
 
-`--cmap` (default `RdYlBu_r`) is **diverging and centred on the median divergence of the
-array**, not on the middle of the range: the pale centre means "as different as two
-monomers of this array typically are", blue is closer kin than that, red more distant. The
-ends are the 2nd and 98th percentiles, mirrored about the centre. An array whose monomers
-all sit near 5% and one that spans 1–9% therefore read the same way, so a repeating
-pattern of blue cells is HOR structure rather than the array's overall age. Both panels
-share one scale, so the read can be read against its reference. `--vmin`, `--vmax` and
-`--center` override it.
+**Stepped and fixed**: one colour band per 1% divergence (`--step`) from 0 to 20%
+(`--vmax`), from a diverging map (`--cmap`, default `RdYlBu_r`). A pair further apart than
+`--vmax` is off the scale and drawn **black**, marked by the arrow on the colour bar.
+
+Fixed rather than fitted to the data, so the same colour means the same divergence in
+every plot and two reads can be compared by eye — and so that one wildly divergent monomer
+cannot stretch the range everything else is read on. On the ten manifest rows the medians
+run 3.4–8.4% and the largest single pair is 19.7%, so nothing is currently off scale and
+the plots use roughly the lower half of the bar; `--vmax 12` spreads them over the whole
+of it at the cost of comparability with a plot drawn at another setting.
 
 Only whole satellite monomers are compared. A partial unit at the edge of the window is a
 fragment of a monomer, and a non-satellite stretch is not a monomer at all; either would
@@ -458,9 +449,9 @@ a dot plot is a **diagonal**. So by default (`--annot-style box`) each one is dr
   rectangles stacked in the top-left quadrant are the same 4 kb of reference matching two
   different stretches of the read: the duplication, stated as a picture.
 
-`--annot-style lines` restores the previous dotted blue guide lines at the interval ends,
-and `both` draws each. The same intervals are boxed by
-[satdivplot](#satdivplot--pairwise-monomer-divergence), on the diagonal of its heat maps.
+Boxes are drawn in blue (`#0073b2`) at 0.3 pt. `--annot-style lines` restores the previous
+dotted blue guide lines at the interval ends, and `both` draws each. `satdivplot` boxes the
+same intervals the same way, in black.
 
 ## What a line means
 

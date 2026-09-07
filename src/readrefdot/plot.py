@@ -38,8 +38,8 @@ COL_MAIN = "#000000"            # diagonals the aligner placed the read on
 COL_EXT = "#B2B2B2"             # grey70 - every other diagonal
 COL_REV = "#D55E00"             # vermillion - reverse-complement matches
 COL_LINE = "#0072B2"            # blue - annotation guide lines
-COL_BOX = "#000000"             # black - the box around an annotated interval
-BOX_LW = 0.5
+COL_BOX = "#0073b2"             # blue - the box around an annotated interval
+BOX_LW = 0.3
 DPI = 600                       # 45 mm of dot plot is finer than 300 dpi resolves
 COL_LAB = "#444444"
 DIAG_TOL = 3                    # bp slack when matching a run to an alignment diagonal
@@ -389,7 +389,7 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
                   + (f"  ·  {track.n_nonsatellite} non-satellite"
                      if track.n_nonsatellite else ""))
     if n_box:
-        title += "\nblack box: annotated donor, inserted or deleted segment"
+        title += "\nbox: annotated donor, inserted or deleted segment"
     (strip_ax or ax).set_title(title, fontsize=5, linespacing=1.6)
 
     paths = []

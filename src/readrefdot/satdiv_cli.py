@@ -29,14 +29,11 @@ def _add_common(p):
                    help="size of each square heat map in mm")
     p.add_argument("--cmap", default=satdiv.CMAP,
                    help="matplotlib colormap for divergence (diverging by default)")
-    p.add_argument("--vmin", type=float, default=None,
-                   help="%% divergence at the low end of the colour scale "
-                        "(default: the 2nd percentile of the data)")
-    p.add_argument("--vmax", type=float, default=None,
-                   help="%% divergence at the high end (default: the 98th percentile)")
-    p.add_argument("--center", "--centre", type=float, default=None, dest="center",
-                   help="%% divergence the diverging scale is neutral at "
-                        "(default: the array's median)")
+    p.add_argument("--vmax", type=float, default=satdiv.VMAX,
+                   help="%% divergence at the top of the scale; a pair further apart "
+                        "than this is off the scale and drawn black")
+    p.add_argument("--step", type=float, default=satdiv.STEP,
+                   help="%% divergence per colour band")
     p.add_argument("--monomer-period", type=int, default=None, metavar="BP",
                    help="satellite unit length (default: detect it from the sequence)")
     p.add_argument("--monomer-cut", type=float, default=satdiv.mono.DEFAULT_CUT,
@@ -49,24 +46,20 @@ def _add_common(p):
     p.add_argument("--dpi", type=int, default=satdiv.DPI,
                    help="resolution of the PNG; the PDF stays vector either way")
     p.add_argument("--matrix-tsv", action="store_true",
-                   help="also write <NAME>.satdiv.{ref,read}.tsv, the matrices themselves")
+                   help="also write <NAME>.satdiv.tsv, the matrix itself")
 
 
 def _params(a):
-    return satdiv.Params(panel_mm=a.panel_mm, cmap=a.cmap, vmin=a.vmin, vmax=a.vmax,
-                         center=a.center, dpi=a.dpi,
-                         monomer_period=a.monomer_period, monomer_cut=a.monomer_cut,
+    return satdiv.Params(panel_mm=a.panel_mm, cmap=a.cmap, vmax=a.vmax, step=a.step,
+                         dpi=a.dpi, monomer_period=a.monomer_period, monomer_cut=a.monomer_cut,
                          monomer_consensus=read_consensus(a.monomer_consensus))
 
 
 def _draw(ctx, params, stem, matrix_tsv=False, lines=None):
     paths, st = satdiv.draw(ctx, params, stem, lines=lines, formats=FORMATS)
     if matrix_tsv:
-        for name in ("ref", "read"):
-            units = [u for u in st["monomer"].units
-                     if u.block == name and not u.partial and u.satellite]
-            satdiv.write_tsv(ctx, st["monomer"], name, units, st["matrices"][name],
-                             f"{stem}.satdiv.{name}.tsv")
+        satdiv.write_tsv(ctx, st["units"], st["n_ref"], st["matrix"],
+                         f"{stem}.satdiv.tsv")
     return paths, st
 
 
@@ -119,7 +112,7 @@ def main(argv=None):
             continue
         print(f"[{i}/{len(read_ids)}] {ctx.read_id}  {ctx.window}  "
               f"ref {st['n_ref']} + read {st['n_read']} monomers  "
-              f"{st['vmin']:.1f}-{st['vmax']:.1f}% scale  "
+              f"{st['n_over']:,} pairs off scale  "
               f"-> {os.path.basename(paths[0])}")
         n_ok += 1
 
@@ -158,7 +151,7 @@ def batch_main(argv=None):
     ap.add_argument("--outdir", default=None,
                     help="write everything here instead of the manifest's outdir column")
     ap.add_argument("--matrix-tsv", action="store_true",
-                    help="also write the matrices as TSV beside each plot")
+                    help="also write the matrix as TSV beside each plot")
     ap.add_argument("--force", action="store_true",
                     help="redraw even when the output already exists")
     ap.add_argument("--dry-run", action="store_true",
