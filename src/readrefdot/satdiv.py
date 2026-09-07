@@ -38,7 +38,7 @@ from matplotlib.patches import Rectangle
 
 from . import monomer as mono
 from .plot import (AXLAB_PT, COL_AXLAB, MM, STEM_MM, STYLE, _dot_size,
-                   _lollipops, block_labels)
+                   _lollipops, block_labels, insertion_sites)
 
 GAP_MM = 0.0               # panel to strip: the sticks start at the edge of the panel
 CB_GAP_MM = 3.5            # strip to colour bar
@@ -158,20 +158,22 @@ def _index_at(units, pos):
 def _spans(ctx, lines, units, n_ref):
     """The annotation in monomer coordinates.
 
-    Returns (reference spans, read spans, read marks).
+    Returns (reference spans, read spans, insertion marks, deletion marks). Marks are
+    monomer coordinates; each belongs to the block it is drawn in.
 
     `ref-lines`/`read-lines` hold the same intervals readrefdot draws: for an INS the
     donor region on the reference, and in the read both the donor's copy and the inserted
     segment; for a DEL the deleted block on the reference. `Lines.intervals` pairs the
     endpoints (see `annotate.pair_up`) and clips each to its own block.
 
-    A read position that is not the edge of a drawn span comes back as a MARK. A deletion
-    is the case that matters: its read side is a junction, not a segment, so it gets no
-    box, and nothing in the divergence matrix says where in the read the sequence was
-    lost -- the monomers either side of it are simply neighbours. The mark is the only
-    thing that puts it on the plot."""
+    An event that is a JUNCTION rather than a segment gets a mark. There are two, and they
+    are each other's mirror. A deletion is a junction in the read: it gets no box there,
+    and nothing in the divergence matrix says where the sequence was lost -- the monomers
+    either side of it are simply neighbours. An insertion is a junction in the reference:
+    the read block boxes the inserted copy, but the reference never held it, and the site
+    comes from the alignment rather than from the annotation columns."""
     if not lines or not units:
-        return [], [], []
+        return [], [], [], []
     ref_iv, read_iv = lines.intervals(ctx)
     ref_u, read_u = units[:n_ref], units[n_ref:]
     out, drawn = [], set()
@@ -188,12 +190,16 @@ def _spans(ctx, lines, units, n_ref):
         out.append(got)
 
     R = len(ctx.ref_seq)
-    marks = []
+    dels = []
     for p in sorted({R + p for p in lines.read}) if read_u else []:
         if p in drawn or p <= read_u[0].start or p >= read_u[-1].end:
             continue
-        marks.append(_index_at(read_u, p) + n_ref)
-    return out[0], out[1], marks
+        dels.append(_index_at(read_u, p) + n_ref)
+    ins = []
+    for x in insertion_sites(ctx, read_iv) if ref_u else []:
+        if ref_u[0].start <= x <= ref_u[-1].end:
+            ins.append(_index_at(ref_u, x))
+    return out[0], out[1], ins, dels
 
 
 def _draw_boxes(ax, ref_spans, read_spans):
@@ -211,13 +217,14 @@ def _draw_boxes(ax, ref_spans, read_spans):
     return len(rects)
 
 
-def _draw_marks(ax, marks):
-    """A dashed cross-hair at a read position with no segment to box -- the junction a
-    deletion left behind."""
-    for m in marks:
-        ax.axvline(m, color=COL_ANNOT, lw=BOX_LW, ls=(0, (2, 2)), zorder=5)
-        ax.axhline(m, color=COL_ANNOT, lw=BOX_LW, ls=(0, (2, 2)), zorder=5)
-    return len(marks)
+def _draw_marks(ax, ins, dels, n_ref, n):
+    """A dashed cross-hair at each junction, inside the block it belongs to: the insertion
+    site in the reference, the deletion junction in the read."""
+    for marks, lo, hi in ((ins, 0, n_ref), (dels, n_ref, n)):
+        for m in marks:
+            ax.vlines(m, lo, hi, colors=COL_ANNOT, lw=BOX_LW, ls=(0, (2, 2)), zorder=5)
+            ax.hlines(m, lo, hi, colors=COL_ANNOT, lw=BOX_LW, ls=(0, (2, 2)), zorder=5)
+    return len(ins) + len(dels)
 
 
 def scale(params):
@@ -303,9 +310,9 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     # which is both smaller and exactly the data.
     im = ax.imshow(D, cmap=cmap, norm=norm, extent=(0, n, 0, n), origin="lower",
                    interpolation="none", aspect="auto")
-    ref_spans, read_spans, marks = _spans(ctx, lines, units, n_ref)
+    ref_spans, read_spans, ins, dels = _spans(ctx, lines, units, n_ref)
     n_box = _draw_boxes(ax, ref_spans, read_spans)
-    n_mark = _draw_marks(ax, marks)
+    n_mark = _draw_marks(ax, ins, dels, n_ref, n)
     ax.set_xlim(0, n); ax.set_ylim(0, n)
     ax.axvline(n_ref, color=COL_ANNOT, lw=0.5, zorder=4)
     ax.axhline(n_ref, color=COL_ANNOT, lw=0.5, zorder=4)
@@ -347,7 +354,9 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     if n_box or n_mark:
         title += ("\nbox: annotated donor, inserted or deleted segment"
                   if n_box else "")
-        title += "\ndashed: the deletion junction in the read" if n_mark else ""
+        notes = (["the insertion site in the reference"] if ins else []) + \
+                (["the deletion junction in the read"] if dels else [])
+        title += ("\ndashed: " + " and ".join(notes)) if notes else ""
     strip_ax.set_title(title, fontsize=5, linespacing=1.6)
 
     paths = []

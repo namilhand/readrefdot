@@ -378,12 +378,11 @@ sit on the base the annotation names rather than on the nearest monomer boundary
 interval outside the plotted window is dropped, exactly as the dot plot drops a guide line
 for it.
 
-**A read position with no segment to box gets a white dashed cross-hair instead.** A
-deletion is the case that matters: its read side is a junction, not a segment, so nothing
-in the divergence matrix says where in the read the sequence was lost — the monomers either
-side of it are simply neighbours. The dashed line is the only thing that puts it on the
-plot, and running it across the whole panel lets you carry the junction over to the
-reference block and read off what is missing.
+**A junction gets a white dashed cross-hair** in the block it belongs to, exactly as in
+the dot plot: the deletion junction in the read × read quadrant, the insertion site in the
+reference × reference one. For a deletion this is the only thing that puts the event on the
+plot at all — nothing in the divergence matrix says where the sequence was lost, since the
+monomers either side of the junction are simply neighbours.
 
 Six of the ten manifest rows are tandem duplications, and in every one the monomers inside
 the two read boxes are near-identical at the duplication's own offset (0.0–1.3% divergence
@@ -503,13 +502,24 @@ per (reference, read) interval pair, or each read interval at the reference span
 aligner gives it — says what the two diagonal boxes and the data between them already say,
 at the cost of two more marks per interval.
 
-**A read position with no segment to box gets a dotted cross-hair instead.** A deletion is
-the case that matters: its read side is a junction, not a segment, so the reference block
-shows the deleted stretch in a box while the read block has nothing to mark — only a step
-in a diagonal, which is exactly what is hard to find. The lines run across the whole panel,
-so the junction carries into the reference block and lands on the box that says what is
-missing there. On the ten manifest rows the two DEL rows get one cross-hair each and the
-eight INS rows get none, their read positions all being box edges already.
+**An event that is a junction rather than a segment gets a dotted cross-hair**, drawn
+inside the block it belongs to. There are two, and they are each other's mirror:
+
+* a **deletion** is a junction *in the read* — the reference block boxes what is missing,
+  and the read has only a step in a diagonal to show for it. The cross-hair goes in the
+  read × read quadrant.
+* an **insertion** is a junction *in the reference* — the read block boxes the inserted
+  copy, but the reference never held it. The cross-hair goes in the reference × reference
+  quadrant.
+
+The insertion site is not in the annotation columns; it comes from the alignment. A read
+interval that lies wholly inside an insertion has no reference span — the aligner took
+those bases without advancing along the reference — so projecting it through the CIGAR
+gives one position, and that is the site. It also settles which of an INS row's two read
+intervals is the inserted copy and which is the donor's, which the columns do not record:
+on all eight INS rows exactly one interval projects to zero width. Each of the ten manifest
+rows gets exactly one cross-hair — an insertion site on the eight INS rows, a deletion
+junction on the two DEL rows.
 
 Boxes are drawn in blue (`#0073b2`) at 0.3 pt. `--annot-style lines` restores the previous
 dotted blue guide lines at the interval ends, and `both` draws each. The [divergence plot](#the-divergence-plot---satdiv) boxes the same intervals the same

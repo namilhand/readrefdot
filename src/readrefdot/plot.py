@@ -281,6 +281,63 @@ def _strips(fig, geom, R, n, track, style, panel_mm):
     return top
 
 
+def aligned_blocks(ctx):
+    """(read_start, read_end, ref_start) for every aligned block of the primary
+    alignment, in the coordinates the quad plot uses for each block."""
+    a = ctx.primary
+    out, q, r = [], 0, a.reference_start
+    for op, ln in (a.cigartuples or []):
+        if op in (0, 7, 8):
+            qs = _seq_x(q, a, ctx)
+            out.append((qs, qs + ln, r - ctx.win_start))
+            q += ln
+            r += ln
+        elif op == 1:
+            q += ln
+        elif op in (2, 3):
+            r += ln
+        elif op in (4, 5):
+            q += ln
+    return out
+
+
+def ref_at(blocks, q):
+    """The reference position the aligner gives read position `q`.
+
+    Inside an aligned block it is that block's own mapping. Inside an INSERTION it is the
+    insertion site -- the reference position the aligner had reached when it took those
+    bases from the read."""
+    if not blocks:
+        return 0
+    prev = blocks[0][2]
+    for qs, qe, rs in blocks:
+        if q < qs:
+            return prev
+        if q < qe:
+            return rs + (q - qs)
+        prev = rs + (qe - qs)
+    return prev
+
+
+def insertion_sites(ctx, read_intervals):
+    """Where each annotated read interval sits on the reference, when it sits at a POINT.
+
+    A read interval that lies wholly inside an insertion has no reference span: the
+    aligner took those bases without advancing along the reference. That single position
+    is the insertion site, and it is the only place the reference block can show an
+    insertion at all. Which of an INS row's two read intervals is the inserted copy and
+    which is the donor's copy is not in the annotation columns -- the alignment says so,
+    by projecting one of them to zero width."""
+    blocks = aligned_blocks(ctx)
+    R = len(ctx.ref_seq)
+    out = []
+    for a, b in read_intervals:
+        x0, x1 = ref_at(blocks, a - R), ref_at(blocks, b - R)
+        if x1 - x0 < 1 and 0 <= x0 <= R:
+            out.append(x0)
+    return sorted(set(out))
+
+
 def _annotation(ax, ctx, lines):
     """Black rectangles around the annotated intervals, in every quadrant that holds one.
 
@@ -294,12 +351,11 @@ def _annotation(ax, ctx, lines):
     aligner gives it -- says something the two diagonal boxes and the data between them
     already say, at the cost of two more marks per interval.
 
-    A read position with no segment to box gets a dotted cross-hair instead. A deletion is
-    the case that matters: its read side is a junction, not a segment, so the reference
-    block shows the deleted stretch in a box while the read block has nothing to mark --
-    only a step in a diagonal, which is exactly what is hard to find. Drawing the lines
-    across the whole panel carries the junction into the reference block, where the box
-    says what is missing there.
+    An event that is a JUNCTION rather than a segment gets a dotted cross-hair, drawn
+    inside the block it belongs to. There are two, and they are each other's mirror: a
+    deletion is a junction in the read (the reference block boxes what is missing, the
+    read has only a step in a diagonal to show for it), and an insertion is a junction in
+    the reference (the read block boxes the inserted copy, the reference never held it).
 
     Returns (boxes, cross-hairs)."""
     R, Q = len(ctx.ref_seq), len(ctx.read_seq)
@@ -310,12 +366,14 @@ def _annotation(ax, ctx, lines):
                                edgecolor=COL_BOX, linewidth=BOX_LW, zorder=6))
 
     drawn = {p for a, b in read for p in (a, b)}
-    marks = [p for p in sorted({R + q for q in lines.read})
-             if p not in drawn and R <= p <= R + Q]
-    for m in marks:
-        ax.axvline(m, color=COL_BOX, lw=BOX_LW, ls=":", zorder=6)
-        ax.axhline(m, color=COL_BOX, lw=BOX_LW, ls=":", zorder=6)
-    return len(rects), len(marks)
+    dels = [p for p in sorted({R + q for q in lines.read})
+            if p not in drawn and R <= p <= R + Q]
+    ins = insertion_sites(ctx, read)
+    for marks, lo, hi in ((dels, R, R + Q), (ins, 0, R)):
+        for m in marks:
+            ax.vlines(m, lo, hi, colors=COL_BOX, lw=BOX_LW, ls=":", zorder=6)
+            ax.hlines(m, lo, hi, colors=COL_BOX, lw=BOX_LW, ls=":", zorder=6)
+    return len(rects), (len(ins), len(dels))
 
 
 def block_labels(ctx, coords=False):
@@ -382,9 +440,9 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
         ax.add_collection(LineCollection(xy, colors=COL_REV, linewidths=0.25, zorder=4,
                                          rasterized=xy.shape[0] > 20000))
 
-    n_box = n_mark = 0
+    n_box, (n_ins, n_del) = 0, (0, 0)
     if lines and params.annot_style in ("box", "both"):
-        n_box, n_mark = _annotation(ax, ctx, lines)
+        n_box, (n_ins, n_del) = _annotation(ax, ctx, lines)
 
     ax.set_xlim(0, n); ax.set_ylim(0, n)
     ax.axvline(R, color="black", lw=0.5, zorder=5)
@@ -420,8 +478,10 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
                      if track.n_nonsatellite else ""))
     if n_box:
         title += "\nbox: annotated donor, inserted or deleted segment"
-    if n_mark:
-        title += "\ndotted: the deletion junction in the read"
+    notes = (["the insertion site in the reference"] if n_ins else []) + \
+            (["the deletion junction in the read"] if n_del else [])
+    if notes:
+        title += "\ndotted: " + " and ".join(notes)
     (strip_ax or ax).set_title(title, fontsize=5, linespacing=1.6)
 
     paths = []
@@ -431,7 +491,7 @@ def quad(ctx, params, out_stem, lines=None, formats=("png", "pdf")):
         paths.append(path)
     plt.close(fig)
     return paths, dict(n_fwd=int(fwd[0].size), n_rev=int(rev[0].size), total_bp=n,
-                       monomer=track, n_boxes=n_box, n_marks=n_mark)
+                       monomer=track, n_boxes=n_box, n_marks=n_ins + n_del)
 
 
 def _coordinate_ticks(fig, ax, ctx, R, Q):
