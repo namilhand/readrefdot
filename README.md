@@ -147,14 +147,17 @@ in the sequences themselves, in three steps:
    histogram of distances between successive copies of the same 16-mer has a sharp mode
    at the unit length. No mode ⇒ not an array ⇒ the plot falls back to coordinates.
 2. **Phase.** Every 16-mer that recurs at that spacing is a candidate marker of the same
-   point in successive units. Each is checked for a *consistent* offset from the best
-   one along the whole array (a k-mer that sits at a different place in different units
-   is not a phase marker and is dropped), and the survivors vote on where a unit starts.
-   Walking those votes one period at a time tiles the sequence: where a vote is missing
-   — the anchor was mutated away in that unit — the boundary is interpolated, so one
-   damaged unit costs phase accuracy there and not the tiling. Reference and read are
-   tiled separately but from the same anchor panel, so a boundary means the same thing
-   in both blocks.
+   point in successive units. Each is checked for a *consistent* offset from the best one
+   along the whole array — modulo the period, so a marker still votes in the units where
+   the best one was mutated away — and a k-mer sitting at a different place in different
+   units is not a phase marker and is dropped. The survivors (up to 60) vote on where a
+   unit starts. **No single marker survives in every unit**: the best one covers 86–97% of
+   them. The panel as a whole does — on real reads every unit contains at least one marker,
+   median 43–53 of them, and 98–99% of boundaries land on a vote backed by dozens of
+   agreeing markers. Walking those votes one period at a time tiles the sequence; the
+   remaining ~1% of boundaries are placed by stepping one period, never more than one in a
+   row, so nothing drifts. Reference and read are tiled separately but from the same anchor
+   panel, so a boundary means the same thing in both blocks.
 3. **Groups.** Units are compared by shared 8-mer content (a Mash-style identity
    estimate — exact pairwise alignment would be more accurate and is not worth it, since
    the numbers only have to separate satellite variants) and clustered by average
