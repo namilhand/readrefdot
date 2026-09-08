@@ -105,6 +105,10 @@ def build_parser():
                         "than this is off the scale and drawn black")
     p.add_argument("--satdiv-step", type=float, default=1.0, metavar="PCT",
                    help="%% divergence per colour band")
+    p.add_argument("--satdiv-style", choices=("both", "quad", "pair"), default="both",
+                   help="quad = [reference | read] on both axes in one box "
+                        "(<NAME>.satdiv); pair = the two self-comparisons side by side "
+                        "on one shared coordinate (<NAME>.satdiv_pair); both = each")
     p.add_argument("--matrix-tsv", action="store_true",
                    help="with --satdiv, also write <NAME>.satdiv.tsv, the matrix itself")
     p.add_argument("--annot-style", choices=("box", "lines", "both"), default="box",
@@ -151,7 +155,8 @@ def main(argv=None):
                     monomer_consensus=read_consensus(a.monomer_consensus),
                     annot_style=a.annot_style, satdiv=a.satdiv or a.matrix_tsv,
                     satdiv_panel_mm=a.satdiv_panel_mm, satdiv_cmap=a.satdiv_cmap,
-                    satdiv_vmax=a.satdiv_vmax, satdiv_step=a.satdiv_step)
+                    satdiv_vmax=a.satdiv_vmax, satdiv_step=a.satdiv_step,
+                    satdiv_style=a.satdiv_style)
     if a.dpi:
         params.dpi = a.dpi
     if a.png_panel_mm:

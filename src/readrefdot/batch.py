@@ -9,7 +9,8 @@ Optional columns  k, min-seg, merge-gap, panel-mm, colour_main, colour_ext,
                   ref-lines, read-lines, monomer, monomer-period, monomer-cut,
                   monomer-style, monomer-consensus, annot-style, dpi,
                   png-panel-mm, png-text-pt, satdiv,
-                  satdiv-panel-mm, satdiv-cmap, satdiv-vmax, satdiv-step
+                  satdiv-panel-mm, satdiv-cmap, satdiv-vmax, satdiv-step,
+                  satdiv-style
                   (blank means "use the default"; '-' spellings also accepted with '_')
 
 `suffix` is the output file stem: a row writes <outdir>/<suffix>.quad.png and .pdf,
@@ -34,7 +35,8 @@ OPTIONAL = ("k", "min-seg", "merge-gap", "panel-mm", "colour_main", "colour_ext"
             "ref-lines", "read-lines", "monomer", "monomer-period", "monomer-cut",
             "monomer-style", "monomer-consensus", "tree-method",
             "annot-style", "dpi", "png-panel-mm", "png-text-pt", "satdiv",
-            "satdiv-panel-mm", "satdiv-cmap", "satdiv-vmax", "satdiv-step")
+            "satdiv-panel-mm", "satdiv-cmap", "satdiv-vmax", "satdiv-step",
+            "satdiv-style")
 FORMATS = ("png", "pdf")
 
 
@@ -125,6 +127,8 @@ def params_for(v):
         p.satdiv_vmax = float(v["satdiv-vmax"])
     if v["satdiv-step"]:
         p.satdiv_step = float(v["satdiv-step"])
+    if v["satdiv-style"]:
+        p.satdiv_style = v["satdiv-style"]
     return p
 
 
@@ -132,7 +136,10 @@ def outputs_for(v):
     stem = os.path.join(v["outdir"], v["suffix"])
     out = [f"{stem}.quad.{f}" for f in FORMATS]
     if v.get("satdiv") and str(v["satdiv"]).lower() not in ("0", "no", "false", "n"):
-        out += [f"{stem}.satdiv.{f}" for f in FORMATS]
+        style = (v.get("satdiv-style") or "both").strip()
+        for name in (("satdiv", "satdiv_pair") if style == "both" else
+                     ("satdiv",) if style == "quad" else ("satdiv_pair",)):
+            out += [f"{stem}.{name}.{f}" for f in FORMATS]
     return stem, out
 
 

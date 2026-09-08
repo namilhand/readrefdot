@@ -41,6 +41,7 @@ from .plot import (AXLAB_PT, BASE_PT, COL_AXLAB, MM, STEM_MM, _dot_size,
                    _lollipops, block_labels, insertion_sites, sizes_for)
 
 GAP_MM = 0.0               # panel to strip: the sticks start at the edge of the panel
+INTER_MM = 6.0             # between the two panels of the pair plot
 CB_GAP_MM = 3.5            # strip to colour bar
 CB_W_MM = 1.6
 CHUNK = 64                 # rows of the matrix computed at once
@@ -251,22 +252,24 @@ def scale(params):
     return cmap, BoundaryNorm(bounds, cmap.N)
 
 
-def _strips(fig, geom, units, n_ref, n, S):
+def _strips(fig, geom, units, span, S, divider=None):
     """The monomer annotation: one lollipop per monomer, along the top and the right of
-    the whole panel, so it labels the reference block and the read block in turn."""
+    the panel. `span` is the axis length, which is longer than the run of monomers when
+    the two panels of the pair plot share one coordinate."""
     x0, y0, box, gap, strip, fw, fh = geom
-    centres = np.arange(n) + 0.5
+    centres = np.arange(len(units)) + 0.5
     cols = [_colour(u) for u in units]
-    dot = _dot_size(S, n)
+    dot = _dot_size(S, span)
     stem = STEM_MM * MM * S.g / strip
     top = fig.add_axes([x0 / fw, (y0 + box + gap) / fh, box / fw, strip / fh])
     right = fig.add_axes([(x0 + box + gap) / fw, y0 / fh, strip / fw, box / fh])
     _lollipops(top, centres, cols, dot, True, stem, 0.2 * S.g)
     _lollipops(right, centres, cols, dot, False, stem, 0.2 * S.g)
-    top.set_xlim(0, n); top.set_ylim(0, 1)
-    right.set_xlim(0, 1); right.set_ylim(0, n)
-    top.axvline(n_ref, color="black", lw=0.5 * S.g, ymax=stem)
-    right.axhline(n_ref, color="black", lw=0.5 * S.g, xmax=stem)
+    top.set_xlim(0, span); top.set_ylim(0, 1)
+    right.set_xlim(0, 1); right.set_ylim(0, span)
+    if divider:
+        top.axvline(divider, color="black", lw=0.5 * S.g, ymax=stem)
+        right.axhline(divider, color="black", lw=0.5 * S.g, xmax=stem)
     for a in (top, right):
         a.set_xticks([]); a.set_yticks([])
         for sp in a.spines.values():        # the panel's own frame is the strip's base
@@ -303,7 +306,8 @@ def _figure(ctx, params, lines, units, n_ref, n, D, track, S):
     for sp in ax.spines.values():
         sp.set_linewidth(0.5 * S.g); sp.set_color("black")
 
-    strip_ax = _strips(fig, (ml, mb, box, gap, strip, fw, fh), units, n_ref, n, S)
+    strip_ax = _strips(fig, (ml, mb, box, gap, strip, fw, fh), units, n, S,
+                       divider=n_ref)
 
     for pos, lab in zip((n_ref / 2, n_ref + (n - n_ref) / 2), block_labels(ctx)):
         ax.annotate(lab, xy=(pos, 0), xycoords=("data", "axes fraction"),
@@ -345,8 +349,96 @@ def _figure(ctx, params, lines, units, n_ref, n, D, track, S):
     return fig, n_box, n_mark, over
 
 
+def _pair_figure(ctx, params, lines, units, n_ref, n, D, track, S):
+    """One drawing of the PAIR plot: reference x reference on the left, read x read on the
+    right, side by side rather than in one quad.
+
+    Both boxes hold the same number of monomer slots -- `max(n_ref, n_read)` -- so a cell
+    is the same size in each and the two can be laid against one another. The shorter
+    block leaves the far end of its box BLANK rather than stretching to fill it, and that
+    blank is exactly what the other block has gained: on a read carrying an insertion of
+    23 monomers, the reference panel ends 23 slots early."""
+    cmap, norm = scale(params)
+    mpl.rcParams.update(S.rc())
+    span = max(n_ref, n - n_ref) or 1
+    box = S.panel_mm * MM
+    dot = _dot_size(S, span)
+    strip = STEM_MM * MM * S.g + dot / 72 / 2 + 0.05 * MM * S.g
+    gap, inter = GAP_MM * MM * S.g, INTER_MM * MM * S.g
+    cb_gap, cb_w = CB_GAP_MM * MM * S.g, CB_W_MM * MM * S.g
+    ml, mb, mt, mr = 0.17 * S.t, 0.17 * S.t, 0.50 * S.t, 0.34 * S.t
+    group = box + gap + strip
+    fw = ml + 2 * group + inter + cb_gap + cb_w + mr
+    fh = mb + group + mt
+    fig = plt.figure(figsize=(fw, fh))
+
+    ref_spans, read_spans, ins, dels = _spans(ctx, lines, units, n_ref)
+    labels = block_labels(ctx)
+    im, strip_ax, n_box, n_mark = None, None, 0, 0
+    for i, (lo, hi) in enumerate(((0, n_ref), (n_ref, n))):
+        x0 = ml + i * (group + inter)
+        ax = fig.add_axes([x0 / fw, mb / fh, box / fw, box / fh])
+        m = hi - lo
+        if m:
+            im = ax.imshow(D[lo:hi, lo:hi], cmap=cmap, norm=norm, extent=(0, m, 0, m),
+                           origin="lower", interpolation="none", aspect="auto")
+        # the spans arrive on the combined axis; shift the read block back to its own
+        spans = ref_spans if i == 0 else [(a - n_ref, b - n_ref) for a, b in read_spans]
+        marks = ins if i == 0 else [d - n_ref for d in dels]
+        for a, b in spans:
+            ax.add_patch(Rectangle((a, a), b - a, b - a, fill=False,
+                                   edgecolor=COL_ANNOT, linewidth=BOX_LW * S.g, zorder=5))
+        for mk in marks:
+            ax.axvline(mk, color=COL_ANNOT, lw=BOX_LW * S.g, ls=(0, (2, 2)), zorder=5)
+            ax.axhline(mk, color=COL_ANNOT, lw=BOX_LW * S.g, ls=(0, (2, 2)), zorder=5)
+        n_box += len(spans)
+        n_mark += len(marks)
+        ax.set_xlim(0, span); ax.set_ylim(0, span)
+        ax.set_xticks([]); ax.set_yticks([])
+        for sp in ax.spines.values():
+            sp.set_linewidth(0.5 * S.g); sp.set_color("black")
+        a_strip = _strips(fig, (x0, mb, box, gap, strip, fw, fh), units[lo:hi], span, S)
+        strip_ax = strip_ax or a_strip
+        ax.annotate(f"{labels[i]}  ({m} monomers)", xy=(0.5, 0), xycoords="axes fraction",
+                    xytext=(0, -6 * S.t), textcoords="offset points", ha="center",
+                    va="top", fontsize=AXLAB_PT * S.t, color=COL_AXLAB)
+
+    cax = fig.add_axes([(ml + 2 * group + inter + cb_gap) / fw, mb / fh, cb_w / fw,
+                        box / fh])
+    tick = next(t for t in (1, 2, 4, 5, 10, 20, 50) if params.satdiv_vmax / t <= 6)
+    ticks = np.arange(0, params.satdiv_vmax + tick / 2, tick)
+    cb = fig.colorbar(im, cax=cax, ticks=ticks)
+    cb.set_ticklabels([f"{t:g}" for t in ticks[:-1]] + [f"\u2265{ticks[-1]:g}"])
+    cb.outline.set_linewidth(0.4 * S.g)
+    cax.tick_params(width=0.4 * S.g, length=1.6 * S.g, labelsize=4.5 * S.t,
+                    pad=1.2 * S.t)
+    cax.set_ylabel("monomer-pair divergence (%)", fontsize=BASE_PT * S.t, color=COL_LAB,
+                   labelpad=2 * S.t)
+
+    over = int((D > params.satdiv_vmax).sum())
+    title = (f"{ctx.read_id}\n{ctx.window}  (strand {ctx.strand})\n"
+             f"{n_ref} + {n - n_ref} monomers of {track.period} bp, "
+             f"{track.n_groups} groups at {int(params.monomer_cut * 100)}% identity"
+             f"\nphase: {track.phase}"
+             + (f"  ·  {track.n_nonsatellite} non-satellite" if track.n_nonsatellite
+                else "")
+             + (f"  ·  {over:,} pairs over {params.satdiv_vmax:g}%" if over else ""))
+    if n_box:
+        title += "\nbox: annotated donor, inserted or deleted segment"
+    notes = (["the insertion site in the reference"] if ins else []) + \
+            (["the deletion junction in the read"] if dels else [])
+    if notes:
+        title += "\ndashed: " + " and ".join(notes)
+    strip_ax.set_title(title, fontsize=BASE_PT * S.t, linespacing=1.6, loc="left")
+    return fig, n_box, n_mark, over
+
+
 def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
-    """Draw the quad divergence plot. Returns (paths, stats).
+    """Draw the divergence plot(s). Returns (paths, stats).
+
+    `--satdiv-style` picks the layout: `quad` puts [reference | read] on both axes in one
+    box, `pair` draws the two self-comparisons side by side on one shared coordinate, and
+    `both` (the default) writes each -- <stem>.satdiv.* and <stem>.satdiv_pair.*.
 
     Each format is drawn at its own size, as the dot plot is: the PDF at its panel size
     for placing in a figure, the PNG larger and with larger text for looking at."""
@@ -368,12 +460,15 @@ def draw(ctx, params, out_stem, lines=None, formats=("pdf", "png")):
     if n == 0:
         raise ValueError("no whole satellite monomers to compare")
 
+    builders = {"quad": (_figure, "satdiv"), "pair": (_pair_figure, "satdiv_pair")}
+    want = ["quad", "pair"] if params.satdiv_style == "both" else [params.satdiv_style]
     paths, n_box, n_mark, over = [], 0, 0, 0
-    for fmt in formats:
+    for style, fmt in [(s, f) for s in want for f in formats]:
+        make, stem_suffix = builders[style]
         S = sizes_for(fmt, params, params.satdiv_panel_mm or params.panel_mm)
-        fig, n_box, n_mark, over = _figure(ctx, params, lines, units, n_ref, n, D,
-                                           track, S)
-        path = f"{out_stem}.satdiv.{fmt}"
+        fig, n_box, n_mark, over = make(ctx, params, lines, units, n_ref, n, D,
+                                        track, S)
+        path = f"{out_stem}.{stem_suffix}.{fmt}"
         # With pdf.compression on, matplotlib turns any image of 256 colours or fewer
         # into a 4-bit INDEXED-palette image. A stepped scale has about twenty colours,
         # so this plot always trips it -- and Illustrator drops the palette when the PDF

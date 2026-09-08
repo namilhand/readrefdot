@@ -40,7 +40,8 @@ including them would stretch the reference window for no gain.
 the PDF is vector regardless.
 Characters that cannot appear in a filename (`/` in particular) become `_`.
 With `--monomer`, also `<readid>.dendrogram.png` / `.dendrogram.pdf`.
-With `--satdiv`, also `<readid>.satdiv.png` / `.satdiv.pdf`.
+With `--satdiv`, also `<readid>.satdiv.png` / `.pdf` and `<readid>.satdiv_pair.png` /
+`.pdf` (see `--satdiv-style`).
 
 ## The plot
 
@@ -137,6 +138,7 @@ the line stops that far short of the panel edge.
 | `--satdiv-cmap` | viridis | its colormap; sequential, dark = alike |
 | `--satdiv-vmax` | 16 | % divergence at the top of its scale; above it is black |
 | `--satdiv-step` | 1 | % divergence per colour band |
+| `--satdiv-style` | both | `quad`, `pair`, or `both` (see below) |
 | `--matrix-tsv` | off | with `--satdiv`, also write `<name>.satdiv.tsv` |
 | `--dpi` | 600 | resolution of the PNG; the PDF is vector either way |
 | `--png-panel-mm` | 140 | plot box for the PNG copy; the PDF keeps `--panel-mm` |
@@ -327,7 +329,7 @@ readrefdot-batch manifest.tsv            # --dry-run to preview, --force to redr
 | `ref-lines`, `read-lines` | | annotation positions, comma-separated |
 | `monomer`, `monomer-period`, `monomer-cut`, `monomer-style`, `monomer-consensus` | | monomer annotation; `monomer` is on for anything but `0`/`no`/`false`. Rows with it on also write `<suffix>.dendrogram.png`/`.pdf` |
 | `annot-style`, `dpi`, `png-panel-mm`, `png-text-pt` | | how the annotated intervals are drawn, and how the PNG copy is sized |
-| `satdiv`, `satdiv-panel-mm`, `satdiv-cmap`, `satdiv-vmax`, `satdiv-step` | | the divergence plot; `satdiv` is on for anything but `0`/`no`/`false` |
+| `satdiv`, `satdiv-panel-mm`, `satdiv-cmap`, `satdiv-vmax`, `satdiv-step`, `satdiv-style` | | the divergence plot(s); `satdiv` is on for anything but `0`/`no`/`false` |
 
 Column names accept either `-` or `_`. Blank cells mean "use the default".
 
@@ -352,6 +354,26 @@ a second figure written beside the dot plot as `<stem>.satdiv.png` / `.pdf`.
 readrefdot --bam sample.bam --ref genome.fa --read "…/85266687/ccs" --satdiv
 readrefdot-batch manifest.tsv          # a `satdiv` column turns it on per row
 ```
+
+### Two layouts
+
+`--satdiv-style` picks how the matrix is laid out, and by default writes **both**:
+
+| style | file | layout |
+|---|---|---|
+| `quad` | `<stem>.satdiv.*` | `[reference \| read]` on both axes, one box, four quadrants |
+| `pair` | `<stem>.satdiv_pair.*` | the two self-comparisons side by side, one shared coordinate |
+
+The **pair** plot puts reference × reference on the left and read × read on the right, and
+gives both boxes the same number of monomer slots — `max(n_ref, n_read)` — so a cell is the
+same size in each and the two can be laid against one another directly. The shorter block
+leaves the far end of its box **blank** rather than stretching to fill it, and that blank is
+exactly what the other block has gained: on `INS_93` the 97-monomer reference ends 23 slots
+early against the read's 120, and on `DEL_35` it is the read that stops 23 short. Each panel
+carries the same annotation it has in the quad plot — its own boxes, and its own junction
+cross-hair.
+
+The **quad** plot is described below.
 
 **The layout is the quad plot's**: `[reference | read]` on both axes, so one matrix fills
 four quadrants — reference × reference bottom-left, read × read top-right, and the two

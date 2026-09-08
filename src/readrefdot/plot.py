@@ -121,6 +121,7 @@ class Params:
     satdiv_cmap: str = "viridis"    # sequential: dark = alike, light = far apart
     satdiv_vmax: float = 16.0       # % divergence at the top of the scale
     satdiv_step: float = 1.0        # % divergence per colour band
+    satdiv_style: str = "both"      # "quad", "pair", or "both"
     png_panel_mm: float = PNG_PANEL_MM      # the PNG copy is drawn at this size
     png_text_pt: float = PNG_TEXT_PT        # with text this big
 
