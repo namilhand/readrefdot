@@ -170,11 +170,23 @@ so nothing has to be told how long the repeat is. Without one, the search runs o
 
 Everything measured in bp then follows the unit: the alignment window's slack, the
 shortest stretch called non-satellite, the anchor and vote tolerances, and `--min-seg`
-(just under one unit — 170 bp for CEN178, 479 for 5S). On a synthetic 5S array of 30
-reference and 34 read units at 2% divergence, with a 3 bp insertion inside one unit, the
-period comes out at exactly 502, 63 of the 64 units are 502 bp and the 64th is the 505 bp
-one carrying the insertion, and the pairwise divergence is a median 3.8% — what two
-independently 2%-mutated copies should be. CEN178 output is unchanged to the pixel.
+(just under one unit — 170 bp for CEN178, 479 for 5S). CEN178 output is unchanged to the
+pixel.
+
+**On a real 5S array** — a 503 bp de-novo insertion of aTha5s at Chr5:11,861,572, its
+donor 2.5 kb upstream, in a leaf read spanning 17.5 kb of the array — the period comes out
+at exactly 502 and the window tiles into 69 whole units plus 4 edge fragments, none of them
+called non-satellite. Unit lengths are 500–503 (45 at 502, 19 at 501), and identity to the
+consensus runs 0.974–0.992.
+
+**Expect a different `--monomer-cut`.** rDNA is homogenised by concerted evolution far more
+thoroughly than centromeric satellite: pairwise divergence in that array has a median of
+**1.4%** and a maximum of 3.8%, against **5.1%** median for the CEN178 arrays. The default
+0.97 cut therefore puts all 69 units in **one group** — correctly, but uninformatively.
+Scaled to the same fraction of the array's own divergence, the equivalent cut is ~0.992;
+**0.99** gives 6 groups and is what the manifest row uses. For the same reason the
+divergence heat map sits in the bottom quarter of its fixed 0–16% scale; `satdiv-vmax 4`
+spreads it, at the cost of comparability with the CEN178 plots.
 
 ## Monomer annotation (`--monomer`)
 
