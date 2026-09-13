@@ -9,7 +9,7 @@ from . import __version__
 from .annotate import Lines
 from . import satdiv as satdiv_mod
 from . import tree as tree_mod
-from .monomer import CEN178, DEFAULT_CUT, write_tsv
+from .monomer import CEN178, CONSENSUS, DEFAULT_CUT, write_tsv
 from .plot import Params, quad
 from .read import ReadNotFound, iter_primary, load
 
@@ -22,11 +22,18 @@ def safe_name(read_id):
 
 
 def read_consensus(arg):
-    """None -> the built-in CEN178; 'none' -> de novo phase; else the first FASTA record."""
+    """None -> the built-in CEN178; 'none' -> de novo phase; a built-in name (`cen178`,
+    `5s`) -> that sequence; anything else -> the first record of that FASTA."""
     if arg is None:
         return CEN178
     if arg.lower() in ("none", "off", "-"):
         return None
+    key = arg.lower().replace("-", "").replace("_", "").replace(" ", "")
+    if key in CONSENSUS:
+        return CONSENSUS[key]
+    if not os.path.exists(arg):
+        sys.exit(f"--monomer-consensus: no such repeat or file: {arg}\n"
+                 f"  built-in names: {', '.join(sorted(set(CONSENSUS)))}")
     seq = []
     with open(arg) as fh:
         for line in fh:
@@ -61,8 +68,9 @@ def build_parser():
                    help="output file stem, giving <NAME>.quad.png/.pdf "
                         "(default: the read id)")
     p.add_argument("-k", "--kmer", type=int, default=20, help="k-mer size (5-31)")
-    p.add_argument("--min-seg", type=int, default=170,
-                   help="drop diagonal runs shorter than this (bp)")
+    p.add_argument("--min-seg", type=int, default=None,
+                   help="drop diagonal runs shorter than this (bp) "
+                        "(default: just under one repeat unit, 170 for CEN178)")
     p.add_argument("--merge-gap", type=int, default=None,
                    help="max gap chained into one run (default k+1, which bridges a "
                         "single substitution)")
@@ -74,16 +82,18 @@ def build_parser():
     p.add_argument("--colour_ext", "--colour-ext", default=None, metavar="COLOUR",
                    help="colour of every other diagonal (default: grey40)")
     p.add_argument("--monomer", action="store_true",
-                   help="annotate satellite (CEN178) monomers along the top and right "
-                        "of the panel instead of genomic coordinates")
+                   help="annotate tandem-repeat monomers along the top and right of the "
+                        "panel instead of genomic coordinates; --monomer-consensus says "
+                        "which repeat")
     p.add_argument("--monomer-period", type=int, default=None, metavar="BP",
                    help="satellite unit length (default: detect it from the sequence)")
     p.add_argument("--monomer-style", choices=("lollipop", "block"), default="lollipop",
                    help="how a monomer is drawn on the axis")
-    p.add_argument("--monomer-consensus", default=None, metavar="FASTA",
-                   help="repeat consensus that fixes where a unit starts "
-                        "(default: the published CEN178 monomer; 'none' = take the phase "
-                        "from the sequence itself)")
+    p.add_argument("--monomer-consensus", default=None, metavar="NAME|FASTA",
+                   help="repeat consensus that fixes where a unit starts, and whose "
+                        "length sizes the search for the unit: a built-in name "
+                        "(cen178, 5s), a FASTA, or 'none' to take the phase from the "
+                        "sequence itself (default: cen178)")
     p.add_argument("--tree-method", choices=("dendrogram", "nj"), default="dendrogram",
                    help="dendrogram = the grouping tree itself (colours are its branches); "
                         "nj = a separate neighbour-joining tree")

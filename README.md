@@ -117,7 +117,7 @@ the line stops that far short of the panel edge.
 | option | default | notes |
 |---|---|---|
 | `-k, --kmer` | 20 | seed size (5–31). A random 20-mer match has probability ~4⁻²⁰ |
-| `--min-seg` | 170 | drop diagonal runs shorter than this (bp). **The main de-cluttering control** — 170 is just under one CEN178 satellite unit (units vary 177–179 bp), so each surviving run is at least one monomer and the ladder spacing reads as the repeat period |
+| `--min-seg` | ~one unit | drop diagonal runs shorter than this (bp). **The main de-cluttering control** — the default is just under one unit of `--monomer-consensus` (170 bp for CEN178, 479 for 5S), so each surviving run is at least one monomer and the ladder spacing reads as the repeat period |
 | `--merge-gap` | k+1 | largest gap chained into one run. k+1 is exactly the step across a single substitution, so runs bridge isolated SNPs and nothing more; `1` gives strictly exact runs |
 | `--panel-mm` | 45 | size of the square plot box in mm, excluding title and labels |
 | `--outdir` | `.` | output directory |
@@ -128,7 +128,7 @@ the line stops that far short of the panel edge.
 | `--monomer-period` | detect | satellite unit length in bp |
 | `--monomer-cut` | 0.97 | identity at which two monomers join the same group |
 | `--monomer-style` | lollipop | `lollipop` (stick + circle) or `block` |
-| `--monomer-consensus` | built-in CEN178 | FASTA of the repeat consensus that fixes where a unit starts; `none` derives the phase from the sequence |
+| `--monomer-consensus` | cen178 | the repeat: a built-in name (`cen178`, `5s`), a FASTA, or `none` to derive the phase from the sequence. Its length also sizes the search for the unit length |
 | `--monomer-tsv` | off | also write `<name>.monomers.tsv`, one row per unit |
 | `--tree-method` | dendrogram | `dendrogram` (the grouping tree) or `nj` (a separate neighbour-joining tree) |
 | `--no-tree` | off | skip the monomer dendrogram |
@@ -143,6 +143,38 @@ the line stops that far short of the panel edge.
 | `--dpi` | 600 | resolution of the PNG; the PDF is vector either way |
 | `--png-panel-mm` | 140 | plot box for the PNG copy; the PDF keeps `--panel-mm` |
 | `--png-text-pt` | 18 | base text size for the PNG copy; the PDF keeps 5 pt |
+
+## Other tandem repeats
+
+Nothing in the monomer machinery is specific to CEN178. The unit length is measured from
+the sequence, every tolerance is a fraction of it, and the consensus that fixes the phase
+is an argument:
+
+```bash
+readrefdot --bam s.bam --ref genome.fa --read ID --monomer --monomer-consensus 5s
+readrefdot … --monomer-consensus my_repeat.fa      # any FASTA
+readrefdot … --monomer-consensus none              # take the phase from the array itself
+```
+
+`--monomer-consensus` takes a **built-in name**, a **FASTA**, or `none`:
+
+| name | length | what |
+|---|---|---|
+| `cen178` (`atha178`, `178`) | 178 bp | the CEN178 centromeric satellite — the default |
+| `5s` (`5srdna`, `atha5s`) | 502 bp | the 5S rDNA repeat: the 120 bp gene plus its spacer |
+
+The consensus does two jobs. It fixes the phase, so unit 1 starts at the same point in the
+monomer in every plot; and **its length sizes the search for the unit length** (±20/25%),
+so nothing has to be told how long the repeat is. Without one, the search runs over
+100–1200 bp, wide enough for either repeat without reaching a harmonic of it.
+
+Everything measured in bp then follows the unit: the alignment window's slack, the
+shortest stretch called non-satellite, the anchor and vote tolerances, and `--min-seg`
+(just under one unit — 170 bp for CEN178, 479 for 5S). On a synthetic 5S array of 30
+reference and 34 read units at 2% divergence, with a 3 bp insertion inside one unit, the
+period comes out at exactly 502, 63 of the 64 units are 502 bp and the 64th is the 505 bp
+one carrying the insertion, and the pairwise divergence is a median 3.8% — what two
+independently 2%-mutated copies should be. CEN178 output is unchanged to the pixel.
 
 ## Monomer annotation (`--monomer`)
 

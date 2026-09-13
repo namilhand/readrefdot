@@ -104,7 +104,7 @@ def sizes_for(fmt, params, panel_mm=None):
 @dataclass
 class Params:
     kmer: int = 20
-    min_seg: int = 170          # ~one CEN178 satellite unit (units vary 177-179 bp)
+    min_seg: int = None         # default: just under one unit of the repeat below
     merge_gap: int = None       # default k+1: bridges a single substitution
     colour_main: str = COL_MAIN
     colour_ext: str = COL_EXT
@@ -128,6 +128,16 @@ class Params:
     @property
     def gap(self):
         return self.merge_gap if self.merge_gap is not None else self.kmer + 1
+
+    @property
+    def seg(self):
+        """The shortest diagonal run kept: just under one unit of the repeat, so every
+        surviving run is at least one monomer and the ladder spacing reads as the repeat
+        period. 170 bp for CEN178, 479 for the 502 bp 5S rDNA repeat."""
+        if self.min_seg:
+            return self.min_seg
+        return int(round(0.955 * len(self.monomer_consensus))) if self.monomer_consensus \
+            else 170
 
 
 def _seq_x(q, aln, ctx):
@@ -196,8 +206,8 @@ def _self_compare(ctx, p):
     cq, rb, _ = match(cv, cvalid, sorted_vals, order)
     ra = (n - k - cq).astype(np.int64)
 
-    fwd = filter_min_length(merge_segments(fa, fb, p.gap, False), k, p.min_seg)
-    rev = filter_min_length(merge_segments(ra, rb, p.gap, True), k, p.min_seg)
+    fwd = filter_min_length(merge_segments(fa, fb, p.gap, False), k, p.seg)
+    rev = filter_min_length(merge_segments(ra, rb, p.gap, True), k, p.seg)
     return fwd, rev, n
 
 
@@ -506,7 +516,7 @@ def _quad_figure(ctx, params, lines, fwd, rev, n, track, S):
                     ha="right", va="center", fontsize=AXLAB_PT * S.t, color=COL_AXLAB)
 
     title = (f"{ctx.read_id}\n{ctx.window}  (strand {ctx.strand})\n"
-             f"ref {R:,} + read {Q:,} bp  ·  k={k}, min_seg={params.min_seg}")
+             f"ref {R:,} + read {Q:,} bp  ·  k={k}, min_seg={params.seg}")
     if track is not None:                          # its own line: the title sets the
         title += (f"\n{track.n_full} monomers of {track.period} bp, "   # figure width
                   f"{track.n_groups} groups at {int(params.monomer_cut * 100)}% identity"

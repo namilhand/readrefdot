@@ -1,9 +1,15 @@
-"""CEN178 monomer annotation: find the satellite units, group them by sequence.
+"""Monomer annotation: find the units of a tandem repeat, group them by sequence.
 
 A centromeric read and the reference window it maps to are both tandem arrays of the
 ~178 bp CEN178 (aTha178) unit. This module cuts both sequences into those units and
 sorts the units into similarity groups, so the dot plot can be labelled with what the
 array is made of rather than with genomic coordinates.
+
+Nothing here is specific to CEN178. The unit length is measured from the sequence, the
+tolerances are fractions of it, and the consensus that fixes the phase is an argument --
+`--monomer-consensus` takes a built-in name (`cen178`, `5s`), a FASTA, or `none`. The
+5S rDNA repeat (502 bp) is a worked example: it is three times the length, and the only
+thing that changes is the number the tool measures.
 
 Everything is derived from the sequences themselves -- no consensus, no library, no
 aligner. Three steps:
@@ -27,7 +33,11 @@ from .kmer import build_index, kmer_codes, match, revcomp
 ANCHOR_K = 16              # k for period detection and phase anchors: long enough to be
                            # near-unique within one unit, short enough to survive a SNP
 SIM_K = 8                  # k for unit-vs-unit similarity (a unit only has ~170 k-mers)
-PERIOD_LO, PERIOD_HI = 150, 210     # search window for the unit length
+PERIOD_LO, PERIOD_HI = 100, 1200    # search window for the unit length, with no
+                           # consensus to size it: wide enough for CEN178 (178) and the
+                           # 5S rDNA repeat (502) without reaching either one's harmonic
+PERIOD_WINDOW = (0.8, 1.25)  # with a consensus, search this far either side of its length
+TOL_FRAC = 0.035           # tolerances are this fraction of the unit length (6 bp at 178)
 PERIOD_TOL = 6             # bp a gap may differ from the period and still count
 VOTE_TOL = 6               # bp within which boundary votes are the same boundary
 MIN_ANCHOR_HITS = 3        # occurrences before a k-mer can be an anchor
@@ -36,6 +46,8 @@ CONS_K = 12                # k for matching the consensus: survives ~5% divergen
 MIN_IDENTITY = 0.60        # below this a unit is not the satellite at all
 MIN_GAP = 10               # shorter unaligned stretches are not called non-satellite
 ALIGN_SLACK = 40           # bp of slack around one unit's alignment window
+SLACK_FRAC = 0.2           # ...or this fraction of the unit, whichever is larger
+GAP_FRAC = 0.055           # a non-satellite stretch must be this fraction of a unit
 LOOKAHEAD = 6              # units to search ahead when the next one does not match
 MIN_CONS_COVER = 0.5       # consensus phasing needs a vote for this many expected units
 MIN_FULL = 0.7             # a unit shorter than this x period is a partial (array edge)
@@ -47,6 +59,20 @@ MIN_FULL = 0.7             # a unit shorter than this x period is a partial (arr
 CEN178 = ("AGTATAAGAACTTAAACCGCAACCCGATCTTAAAAGCCTAAGTAGTGTTTCCTTGTTAGAAGACACAAAGCCAAAGACTCA"
           "TATGGACTTTGGCTACACCATGAAAGCTTTGAGAAGCAAGAAGAAGGTTGGTTAGTGTTTTGGAGTCGAATATGACTTGAT"
           "GTCATGTGTATGATTG")
+
+# The 5S rDNA repeat unit (502 bp): the 120 bp 5S gene plus its spacer. Arabidopsis
+# carries it in tandem arrays on Chr3, Chr4 and Chr5, next to the centromeres.
+RDNA5S = ("TCGGAGGGCTGTCTTTGGGCTTTCCGAAAAGGTATCACATGCCAAGTTTGGCCTCACGGTCTAAAAGTTATGGAGTCATA"
+          "AAGTTTTAACCAAAAAAAAAAAGGTTAAACATAAAAGAGGGATGCAACACGAGGACTTCCCGGGAGGTCACCCATCCTAG"
+          "TACTACTCTCGCCCAAGCACGCTTGACTGCGGAGTTCTGATGGGATCCGGTGCATTAGTGCTGGTATGATCGCATCCGTT"
+          "AGTATATGCAATGCAATCGTATATATTCTTTTTTGAAGACTTGATGAACCATTCGCCGTGGGTCCCACCCGCTATGTAGG"
+          "GATACCCCATCTAGTCTTAACGAGCTTTGATGCATGAAAAAATTCGAAAACAATGCTTGAACAAGTAATTTTGGGTCCGT"
+          "AATATAGCCCAAATCACGAAAATGCCCGAAAAAGTACTTAAAGGTCAAAATTTGGGGTCGACAAAAAGTCAATGGAAAAG"
+          "TTCCATTGTCCTGCTTCTTTCG")
+
+# Built-in consensus sequences, by the name --monomer-consensus takes.
+CONSENSUS = {"cen178": CEN178, "atha178": CEN178, "178": CEN178,
+             "5s": RDNA5S, "5srdna": RDNA5S, "atha5s": RDNA5S}
 DEFAULT_CUT = 0.97         # group units whose estimated identity is >= this
 
 # Group colours, most abundant group first. The leading seven are Okabe-Ito, so the
@@ -106,6 +132,24 @@ class MonomerTrack:
         return sum(1 for u in self.units if not u.partial)
 
 
+def tolerance(period, frac=TOL_FRAC, floor=6):
+    """A bp tolerance as a fraction of the unit length.
+
+    Every slack in this module was chosen on a 178 bp unit; expressed as a fraction they
+    mean the same thing on a 502 bp one. The floor keeps short units from being measured
+    to an accuracy the sequencing does not have."""
+    return max(floor, int(round(period * frac)))
+
+
+def period_window(consensus, default=(PERIOD_LO, PERIOD_HI)):
+    """Where to look for the unit length. A consensus sizes the search; without one the
+    window has to be wide enough for any repeat the tool might be pointed at."""
+    if not consensus:
+        return default
+    m = len(consensus)
+    return max(20, int(m * PERIOD_WINDOW[0])), int(m * PERIOD_WINDOW[1])
+
+
 def _kmer_positions(seq, k):
     """(values, positions) of every valid k-mer, sorted by value then position."""
     vals, valid = kmer_codes(seq, k)
@@ -142,12 +186,13 @@ def detect_period(seq, k=ANCHOR_K, lo=PERIOD_LO, hi=PERIOD_HI):
     return period
 
 
-def _anchor_panel(seq, period, k=ANCHOR_K, max_anchors=MAX_ANCHORS):
+def _anchor_panel(seq, period, k=ANCHOR_K, max_anchors=MAX_ANCHORS, tol=None):
     """k-mers that recur one period apart, best first. Each is a list of positions.
 
     These are the motifs that mark the same point in successive units. Using many of
     them, rather than one, means a unit whose best anchor was mutated away is still
     given a boundary by another anchor."""
+    tol = tolerance(period) if tol is None else tol
     v, p = _kmer_positions(seq, k)
     if v.size == 0:
         return []
@@ -159,14 +204,14 @@ def _anchor_panel(seq, period, k=ANCHOR_K, max_anchors=MAX_ANCHORS):
         if e - s < MIN_ANCHOR_HITS or e - s > 3 * expect:
             continue                            # too rare, or several copies per unit
         q = p[s:e]
-        good = int(np.count_nonzero(np.abs(np.diff(q) - period) <= PERIOD_TOL))
+        good = int(np.count_nonzero(np.abs(np.diff(q) - period) <= tol))
         if good >= MIN_ANCHOR_HITS - 1:
             out.append((good, q))
     out.sort(key=lambda t: -t[0])
     return [q for _, q in out[:max_anchors]]
 
 
-def _boundary_votes(anchors, period):
+def _boundary_votes(anchors, period, tol=None):
     """Every anchor, shifted onto the phase of the best one, votes for a boundary.
 
     Returns (positions, weights) with weights = how many anchors support that boundary.
@@ -175,6 +220,7 @@ def _boundary_votes(anchors, period):
     a phase marker and is dropped."""
     if not anchors:
         return np.empty(0, int), np.empty(0, int)
+    tol = tolerance(period) if tol is None else tol
     ref = anchors[0]
     shifted = [ref]
     for q in anchors[1:]:
@@ -189,14 +235,14 @@ def _boundary_votes(anchors, period):
         ang = 2 * np.pi * (q - near) / period
         centre = np.arctan2(np.sin(ang).mean(), np.cos(ang).mean()) * period / (2 * np.pi)
         resid = (q - near - centre + period / 2) % period - period / 2
-        if np.median(np.abs(resid)) > VOTE_TOL:
+        if np.median(np.abs(resid)) > tol:
             continue                            # inconsistent phase -> not an anchor
         shifted.append(np.rint(q - centre - np.median(resid)).astype(np.int64))
 
     allp = np.sort(np.concatenate(shifted))
     allp = allp[allp >= 0]
     # collapse votes that are the same boundary
-    brk = np.flatnonzero(np.r_[True, np.diff(allp) > VOTE_TOL])
+    brk = np.flatnonzero(np.r_[True, np.diff(allp) > tol])
     seg_end = np.r_[brk[1:], allp.size]
     pos = np.array([int(np.median(allp[s:e])) for s, e in zip(brk, seg_end)])
     return pos, seg_end - brk
@@ -259,6 +305,8 @@ def align_consensus(window, cons, match=2, mismatch=-3, gap=-5):
 
 
 def _scan_block(S, cons, b0, b1, period, first, min_identity=MIN_IDENTITY):
+    # every slack here is a fraction of the unit, so a 502 bp repeat gets the same
+    # latitude a 178 bp one does
     """Walk a block unit by unit, aligning the consensus to each in turn.
 
     Each unit starts where the previous one's alignment ENDED, so an indel inside a unit
@@ -270,14 +318,16 @@ def _scan_block(S, cons, b0, b1, period, first, min_identity=MIN_IDENTITY):
     transposon or any other insert is labelled rather than tiled as if it were satellite.
     Returns [(start, end, is_satellite, identity), ...]."""
     out, p, m = [], first, len(cons)
+    slack = max(ALIGN_SLACK, int(period * SLACK_FRAC))
+    min_gap = max(MIN_GAP, int(period * GAP_FRAC))
     while p < b1:
         # One unit at a time. A wider window would let the alignment pick whichever unit
         # ahead scores best and silently skip the one in front of it.
-        win = min(b1, p + period + ALIGN_SLACK)
+        win = min(b1, p + period + slack)
         hit = align_consensus(S[p:win], cons) if win - p >= m // 2 else None
         if hit and hit[2] >= min_identity:
             st, en, ident = p + hit[0], p + hit[1], hit[2]
-            if st - p >= MIN_GAP:
+            if st - p >= min_gap:
                 out.append((p, st, False, 0.0))
             out.append((st, en, True, ident))
             p = en if en > p else p + period
@@ -285,7 +335,7 @@ def _scan_block(S, cons, b0, b1, period, first, min_identity=MIN_IDENTITY):
         # No unit here. Look further ahead: whatever is skipped is not this satellite.
         far = min(b1, p + LOOKAHEAD * period)
         ahead = align_consensus(S[p:far], cons) if far - p >= m // 2 else None
-        if ahead and ahead[2] >= min_identity and ahead[0] >= MIN_GAP:
+        if ahead and ahead[2] >= min_identity and ahead[0] >= min_gap:
             out.append((p, p + ahead[0], False, hit[2] if hit else 0.0))
             out.append((p + ahead[0], p + ahead[1], True, ahead[2]))
             p = p + ahead[1]
@@ -494,11 +544,13 @@ def cut_linkage(merges, n, cut):
 
 
 def annotate(ctx, period=None, cut=DEFAULT_CUT, anchor_k=ANCHOR_K, sim_k=SIM_K,
-             consensus=CEN178):
+             consensus=CEN178, period_range=None):
     """Tile the reference window and the read into monomers and group them.
 
-    `consensus` fixes the phase (default: the published CEN178 monomer); pass None to
-    take the phase from the sequence itself. Either way the boundaries are placed by the
+    `consensus` fixes the phase (default: the published CEN178 monomer; `monomer.CONSENSUS`
+    also holds the 502 bp 5S rDNA repeat, and any FASTA will do); pass None to take the
+    phase from the sequence itself. Its length also sizes the search for the unit length,
+    so nothing has to be told how long the repeat is. Either way the boundaries are placed by the
     same vote-and-walk, so the tiling is equally robust -- what the consensus buys is that
     unit 1 starts at the same point in the monomer in every plot.
 
@@ -510,7 +562,8 @@ def annotate(ctx, period=None, cut=DEFAULT_CUT, anchor_k=ANCHOR_K, sim_k=SIM_K,
     blocks = (("ref", 0, R), ("read", R, len(S)))
 
     if not period:
-        period = detect_period(S, anchor_k)
+        lo, hi = period_range or period_window(consensus)
+        period = detect_period(S, anchor_k, lo, hi)
     if not period:
         period = len(consensus) if consensus else 0
     if not period:
@@ -545,7 +598,7 @@ def annotate(ctx, period=None, cut=DEFAULT_CUT, anchor_k=ANCHOR_K, sim_k=SIM_K,
                                   partial=edge or (en - st) < MIN_FULL * period))
     else:
         anchors = _anchor_panel(S, period, anchor_k)
-        votes, weights = _boundary_votes(anchors, period)
+        votes, weights = _boundary_votes(anchors, period)   # tolerances scale with it
         for name, b0, b1 in blocks:
             tiles = _tile_from_votes(votes, weights, b0, b1, period)
             if tiles is None:                      # too few votes to lead: walk instead
